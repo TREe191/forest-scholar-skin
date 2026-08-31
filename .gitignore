@@ -1,0 +1,16 @@
+# Runtime state and diagnostics
+runtime/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Windows shortcuts and shell metadata
+*.lnk
+Thumbs.db
+Desktop.ini
+
+# Local editor settings
+.vscode/
+.idea/
