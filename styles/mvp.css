@@ -49,6 +49,47 @@ html.forest-scholar-skin.forest-scholar-light main[class*="MainContentSurface"] 
   background-color: rgba(245, 241, 231, 0.10) !important;
 }
 
+html.forest-scholar-skin.forest-scholar-dark div[class*="MainContentFrame"],
+html.forest-scholar-skin.forest-scholar-light div[class*="MainContentFrame"] {
+  border-top-color: transparent !important;
+}
+
+html.forest-scholar-skin
+[data-forest-scholar-app-root="true"]
+[role="main"][class*="home-main-content"] {
+  background-color: transparent !important;
+}
+
+html.forest-scholar-skin
+div[class*="MainContentFrame"]:has(
+  [role="main"][class*="home-main-content"]
+)
+div[class*="MainContentTopFade"] {
+  opacity: 0 !important;
+}
+
+html.forest-scholar-skin.forest-scholar-light
+.thread-scroll-container
+div[class~="bg-gradient-to-t"][class~="from-surface"][class~="via-surface"] {
+  background-image: linear-gradient(
+    to top,
+    rgba(245, 241, 231, 0.55) 0%,
+    rgba(245, 241, 231, 0.20) 50%,
+    rgba(245, 241, 231, 0) 100%
+  ) !important;
+}
+
+html.forest-scholar-skin.forest-scholar-dark
+.thread-scroll-container
+div[class~="bg-gradient-to-t"][class~="from-surface"][class~="via-surface"] {
+  background-image: linear-gradient(
+    to top,
+    rgba(21, 35, 29, 0.55) 0%,
+    rgba(21, 35, 29, 0.20) 50%,
+    rgba(21, 35, 29, 0) 100%
+  ) !important;
+}
+
 #forest-scholar-skin-background {
   position: fixed;
   inset: 0;
