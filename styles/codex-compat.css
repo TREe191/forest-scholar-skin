@@ -1,0 +1,48 @@
+html.forest-scholar-skin main.main-surface,
+html.forest-scholar-skin [data-forest-scholar-app-root="true"] [role="main"] {
+  background-color: var(--codex-skin-main-wash) !important;
+  background-image: none !important;
+}
+
+html.forest-scholar-skin aside.app-shell-left-panel {
+  background-color: var(--codex-skin-sidebar-surface) !important;
+  background-image: none !important;
+}
+
+html.forest-scholar-skin .composer-surface-chrome {
+  background-color: var(--codex-skin-chrome-surface) !important;
+  background-image: none !important;
+}
+
+html.forest-scholar-skin main[class*="MainContentSurface"] {
+  background-color: var(--codex-skin-main-content-surface) !important;
+}
+
+html.forest-scholar-skin div[class*="MainContentFrame"] {
+  border-top-color: transparent !important;
+}
+
+html.forest-scholar-skin
+[data-forest-scholar-app-root="true"]
+[role="main"][class*="home-main-content"] {
+  background-color: transparent !important;
+}
+
+html.forest-scholar-skin
+div[class*="MainContentFrame"]:has(
+  [role="main"][class*="home-main-content"]
+)
+div[class*="MainContentTopFade"] {
+  opacity: 0 !important;
+}
+
+html.forest-scholar-skin
+.thread-scroll-container
+div[class~="bg-gradient-to-t"][class~="from-surface"][class~="via-surface"] {
+  background-image: linear-gradient(
+    to top,
+    var(--codex-skin-work-gradient-strong) 0%,
+    var(--codex-skin-work-gradient-middle) 50%,
+    var(--codex-skin-work-gradient-clear) 100%
+  ) !important;
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "../theme.schema.json",
+  "schemaVersion": 1,
+  "id": "phainon",
+  "name": "Phainon",
+  "version": "0.1.0",
+  "author": "tree",
+  "description": "A cool-toned arcane theme used to validate multi-theme package support.",
+  "variants": {
+    "light": {
+      "background": "assets/light.png"
+    },
+    "dark": {
+      "background": "assets/dark.png"
+    }
+  },
+  "layout": "layout.json",
+  "styles": [
+    "styles/theme.css"
+  ],
+  "capabilities": {
+    "light": true,
+    "dark": true,
+    "autoAppearance": true
+  }
+}

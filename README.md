@@ -1,15 +1,15 @@
-# Forest Scholar Skin — CDP v0.2
+# Forest Scholar Skin — CDP v0.3
 
-这是 Forest Scholar Theme 的本机 CDP 版本。它通过本次启动的 Codex 所开放的本机 CDP，把 Forest Scholar 背景和一小段 CSS 加入 renderer；不会修改 WindowsApps、`app.asar`、MSIX 或签名文件。统一入口会自动跟随 Codex 自身的 Light / Dark 外观设置。
+这是 Forest Scholar Theme 的本机 CDP 版本。它通过本次启动的 Codex 所开放的本机 CDP，把所选 Theme Package 的背景和 CSS 加入 renderer；不会修改 WindowsApps、`app.asar`、MSIX 或签名文件。v0.3 使用 Manifest 和通用 Theme Loader，Forest Scholar 是第一套正式主题包。
 
 ## 首次测试
 
 1. 保存当前工作，并关闭所有 Codex 窗口。
 2. 等待数秒，确认 Codex 已完全退出。
-3. 双击 `Start-ForestScholar.cmd`。它会检测 Codex 当前外观，并在后续 Light / Dark 切换时自动同步背景和主题 class。
+3. 确认 `config/app.json` 中的 `activeTheme` 和 `appearance`，然后双击 `Start-ForestScholar.cmd`。
 4. 启动器会从动态高位端口中选择一个空闲端口，只接受 `127.0.0.1` 监听；完成身份核验后才连接 renderer。
 
-`Start-ForestScholar-Light.cmd` 和 `Start-ForestScholar-Dark.cmd` 继续保留，分别用于调试或手动指定初始模式；主题启动后仍会跟随 Codex 后续的外观切换。
+`appearance` 支持 `auto`、`light`、`dark`。`auto` 会跟随 Codex 自身的当前外观及后续切换；固定值会保持对应变体。`Start-ForestScholar-Light.cmd` 和 `Start-ForestScholar-Dark.cmd` 会临时覆盖本次启动的 appearance，但不会修改 `app.json`。
 
 ## 桌面快捷方式
 
@@ -39,10 +39,11 @@
 - 注入器只创建自己命名的 style、背景 div、根节点属性和 class；Disable / Restore 只清理这些命名对象。
 - v0.2 使用独立纯函数布局引擎，根据图片固有尺寸、viewport 和主题配置计算精确像素 `background-size` / `background-position`；布局算法不读取 DOM、文件或 CDP。
 - renderer 通过 `ResizeObserver` 观察 viewport，并用 `requestAnimationFrame` 合并连续缩放更新；尺寸未变化时不会重复计算或写入样式。
+- v0.3 通过 `config/app.json` 选择 Theme Package，Theme Loader 统一加载 Manifest、Light/Dark PNG、布局与可选 CSS；injector 不再知道具体主题资源路径。
 
 ## 背景布局配置
 
-`config/layout.json` 是可由未来 GUI 编辑的主题布局数据，Light / Dark 当前共享同一组 Forest Scholar 参数。`config/layout.schema.json` 描述字段结构。
+每个主题包有自己的 `layout.json`，公共结构由 `themes/layout.schema.json` 描述。Forest Scholar 的配置位于 `themes/forest-scholar/layout.json`。
 
 支持四种通用模式：
 
@@ -59,14 +60,60 @@
 node --test .\test\layout-engine.test.mjs
 ```
 
+## Theme Package Format
+
+每套主题位于 `themes/<theme-id>/`，最小结构如下：
+
+```text
+themes/example-theme/
+├─ theme.json
+├─ layout.json
+├─ assets/
+│  ├─ light.png
+│  └─ dark.png
+└─ styles/
+   └─ theme.css
+```
+
+最小 Manifest：
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example-theme",
+  "name": "Example Theme",
+  "version": "1.0.0",
+  "author": "Theme author",
+  "description": "A local Codex theme.",
+  "variants": {
+    "light": { "background": "assets/light.png" },
+    "dark": { "background": "assets/dark.png" }
+  },
+  "layout": "layout.json",
+  "styles": ["styles/theme.css"],
+  "capabilities": {
+    "light": true,
+    "dark": true,
+    "autoAppearance": true
+  }
+}
+```
+
+schemaVersion 1 只接受 package 内的相对路径和 PNG 背景。禁止绝对路径、UNC、URI、`..`、反斜杠、路径逃逸以及解析到 package 外的 symlink/junction。Theme CSS 可省略；存在时会随当前主题加载。
+
+Theme CSS 不是完整沙箱，仍可改变 renderer 的视觉与布局。v0.3 会拒绝 `@import`、`url()`、`@font-face`、网络/file/data/blob URI、`expression()`、`behavior:` 和反斜杠转义，不会执行主题 JavaScript，也不会为主题开放网络能力。
+
+添加第二套本地主题时，创建上述目录并通过 Schema/Loader 校验，然后把 `config/app.json` 的 `activeTheme` 改为新 ID。无需修改 injector 或布局引擎。非法 ID、无效 Manifest 或缺失资源会直接停止启动，不会回退到 Forest Scholar。
+
 ## 文件与资源
 
-- `assets/forest-scholar-light.png`：用户提供的 Light 最终背景，原样复制。
-- `assets/forest-scholar-dark.png`：用户提供的 Dark 最终背景，原样复制。
-- `assets/SHA256SUMS.txt`：资源 SHA-256。
-- `styles/mvp.css`：仅背景层与主内容最小透明处理；未开始第二阶段组件样式重构。
-- `config/layout.json`：Forest Scholar 的响应式布局与焦点配置。
-- `config/layout.schema.json`：布局配置 JSON Schema。
+- `config/app.json`：当前主题和 appearance 选择。
+- `themes/theme.schema.json`：Theme Manifest JSON Schema。
+- `themes/layout.schema.json`：布局配置 JSON Schema。
+- `themes/forest-scholar/`：Forest Scholar Manifest、布局、主题 CSS 和原始 Light/Dark 资源。
+- `styles/base.css`：背景层、pointer-events 与 app root 的通用基础样式。
+- `styles/codex-compat.css`：Sidebar、Composer、New Chat、Work 等 Codex 结构适配，只引用主题变量。
+- `scripts/theme-loader.mjs`：Theme Package 读取、标准化、路径边界、PNG 与 CSS 安全验证。
 - `scripts/layout-engine.mjs`：无 DOM/文件/CDP 依赖的纯布局计算模块。
 - `scripts/Start-ForestScholarSkin.ps1`：安全启动与身份核验。
 - `scripts/injector.mjs`：无第三方依赖的本机 CDP 注入器，并监听 Codex 根节点的主题信号以自动切换 Light / Dark 资源。
@@ -77,8 +124,8 @@ node --test .\test\layout-engine.test.mjs
 资源校验值：
 
 ```text
-E65EA5FE9B0D47424C5727ED83D16D84508FECF9C2CDD6402FB99A857F9CB3AF  forest-scholar-light.png
-988B7C56C9F05EBAD941453A21C8002587E32E8ABB8E0B68531D045645BC453E  forest-scholar-dark.png
+E65EA5FE9B0D47424C5727ED83D16D84508FECF9C2CDD6402FB99A857F9CB3AF  themes/forest-scholar/assets/light.png
+988B7C56C9F05EBAD941453A21C8002587E32E8ABB8E0B68531D045645BC453E  themes/forest-scholar/assets/dark.png
 ```
 
 ## 已知限制与风险

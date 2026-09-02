@@ -1,0 +1,26 @@
+{
+  "$schema": "../theme.schema.json",
+  "schemaVersion": 1,
+  "id": "forest-scholar",
+  "name": "Forest Scholar",
+  "version": "0.3.0",
+  "author": "Forest Scholar project",
+  "description": "A quiet botanical theme for Codex Desktop.",
+  "variants": {
+    "light": {
+      "background": "assets/light.png"
+    },
+    "dark": {
+      "background": "assets/dark.png"
+    }
+  },
+  "layout": "layout.json",
+  "styles": [
+    "styles/theme.css"
+  ],
+  "capabilities": {
+    "light": true,
+    "dark": true,
+    "autoAppearance": true
+  }
+}

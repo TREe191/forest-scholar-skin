@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { loadThemePackage } from "./theme-loader.mjs";
 
 const IDENTIFIER = /^[A-Za-z0-9._-]{1,200}$/;
+const THEME_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function parseArgs(argv) {
   const options = { port: null, browserId: null, root: null, stateFile: null, mode: null, themeMode: "Dark" };
@@ -250,13 +252,15 @@ if (options.mode === "C") {
   testImageDataUrl = `data:image/svg+xml;base64,${base64}`;
   payloadStats = { mimeType: "image/svg+xml", sourceBytes: Buffer.byteLength(tinySvg), base64Length: base64.length, dataUrlLength: testImageDataUrl.length };
 } else if (options.mode === "D") {
-  const imageName = options.themeMode === "Light" ? "forest-scholar-light.png" : "forest-scholar-dark.png";
-  const image = await fs.readFile(path.join(options.root, "assets", imageName));
-  const base64 = image.toString("base64");
-  testImageDataUrl = `data:image/png;base64,${base64}`;
+  const themeId = state?.theme?.id;
+  if (!THEME_ID.test(themeId ?? "")) throw new Error("The recorded session theme ID is invalid.");
+  const theme = await loadThemePackage(path.join(options.root, "themes", themeId));
+  const background = theme.variants[options.themeMode.toLowerCase()].background;
+  const base64 = background.bytes.toString("base64");
+  testImageDataUrl = `data:${background.mimeType};base64,${base64}`;
   payloadStats = {
-    mimeType: "image/png",
-    sourceBytes: image.length,
+    mimeType: background.mimeType,
+    sourceBytes: background.bytes.length,
     base64Length: base64.length,
     dataUrlLength: testImageDataUrl.length,
     base64HasNewline: /[\r\n]/.test(base64),

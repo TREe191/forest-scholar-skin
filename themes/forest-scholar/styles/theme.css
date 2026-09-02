@@ -1,0 +1,25 @@
+html.forest-scholar-skin {
+  --codex-skin-accent: #6aaf90;
+  --codex-skin-foreground: #e8e5d7;
+  --codex-skin-surface: #15231d;
+  --codex-skin-main-wash: rgba(21, 35, 29, 0.12);
+  --codex-skin-sidebar-surface: rgba(21, 35, 29, 0.92);
+  --codex-skin-chrome-surface: rgba(21, 35, 29, 0.86);
+  --codex-skin-main-content-surface: rgba(21, 35, 29, 0.10);
+  --codex-skin-work-gradient-strong: rgba(21, 35, 29, 0.55);
+  --codex-skin-work-gradient-middle: rgba(21, 35, 29, 0.20);
+  --codex-skin-work-gradient-clear: rgba(21, 35, 29, 0);
+}
+
+html.forest-scholar-skin.forest-scholar-light {
+  --codex-skin-accent: #39755a;
+  --codex-skin-foreground: #20352d;
+  --codex-skin-surface: #f5f1e7;
+  --codex-skin-main-wash: rgba(245, 241, 231, 0.12);
+  --codex-skin-sidebar-surface: rgba(245, 241, 231, 0.92);
+  --codex-skin-chrome-surface: rgba(245, 241, 231, 0.86);
+  --codex-skin-main-content-surface: rgba(245, 241, 231, 0.10);
+  --codex-skin-work-gradient-strong: rgba(245, 241, 231, 0.55);
+  --codex-skin-work-gradient-middle: rgba(245, 241, 231, 0.20);
+  --codex-skin-work-gradient-clear: rgba(245, 241, 231, 0);
+}

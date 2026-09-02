@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+$requestedMode = $Mode
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $runtimeDirectory = Join-Path $projectRoot 'runtime'
 $sessionPath = Join-Path $runtimeDirectory 'session.json'
@@ -20,6 +21,52 @@ $stderrPath = Join-Path $runtimeDirectory 'injector-error.log'
 $historyRoot = Join-Path $runtimeDirectory 'history'
 
 . (Join-Path $PSScriptRoot 'Common.ps1')
+
+$appConfigPath = Join-Path $projectRoot 'config\app.json'
+$themesRoot = Join-Path $projectRoot 'themes'
+if (-not (Test-Path -LiteralPath $appConfigPath -PathType Leaf)) {
+    throw "The application configuration is missing: $appConfigPath"
+}
+try {
+    $appConfig = Get-Content -LiteralPath $appConfigPath -Raw | ConvertFrom-Json
+}
+catch {
+    throw "The application configuration is not valid JSON: $($_.Exception.Message)"
+}
+$requiredAppProperties = @('schemaVersion', 'activeTheme', 'appearance')
+$actualAppProperties = @($appConfig.PSObject.Properties.Name)
+$unsupportedAppProperties = @($actualAppProperties | Where-Object { $_ -notin $requiredAppProperties })
+$missingAppProperties = @($requiredAppProperties | Where-Object { $_ -notin $actualAppProperties })
+if ($unsupportedAppProperties.Count -gt 0 -or $missingAppProperties.Count -gt 0) {
+    throw 'The application configuration does not match schemaVersion 1.'
+}
+if ([int]$appConfig.schemaVersion -ne 1) {
+    throw "Unsupported application configuration schemaVersion: $($appConfig.schemaVersion)"
+}
+$activeTheme = "$($appConfig.activeTheme)"
+if ($activeTheme -notmatch '^[a-z0-9]+(?:-[a-z0-9]+)*$' -or $activeTheme.Length -gt 80) {
+    throw 'activeTheme is not a valid machine-readable theme identifier.'
+}
+$configuredAppearance = "$($appConfig.appearance)"
+if ($configuredAppearance -notin @('auto', 'light', 'dark')) {
+    throw 'appearance must be auto, light, or dark.'
+}
+if ($requestedMode -eq 'Auto') {
+    $Mode = switch ($configuredAppearance) {
+        'light' { 'Light' }
+        'dark' { 'Dark' }
+        default { 'Auto' }
+    }
+}
+$resolvedThemesRoot = (Resolve-Path -LiteralPath $themesRoot).Path
+$declaredThemePackage = Join-Path $resolvedThemesRoot $activeTheme
+if (-not (Test-Path -LiteralPath $declaredThemePackage -PathType Container)) {
+    throw "The active theme package does not exist: $activeTheme"
+}
+$themePackagePath = (Resolve-Path -LiteralPath $declaredThemePackage).Path
+if (-not (Test-FssPathEqual -Left (Split-Path -Parent $themePackagePath) -Right $resolvedThemesRoot)) {
+    throw 'The active theme package is not a direct child of the themes directory.'
+}
 
 if (-not (Test-Path -LiteralPath $runtimeDirectory -PathType Container)) {
     $null = New-Item -ItemType Directory -Path $runtimeDirectory -Force
@@ -55,6 +102,9 @@ $script:FssHistorySession = [ordered]@{
     historySchemaVersion = 1
     launchId = $historyName
     mode = $Mode
+    requestedMode = $requestedMode
+    configuredAppearance = $configuredAppearance
+    activeTheme = $activeTheme
     status = 'starting'
     launcherPid = $PID
     launcherStartedAt = $launchStartedAt
@@ -376,6 +426,7 @@ try {
         '--port', "$port",
         '--browser-id', $cdpIdentity.BrowserId,
         '--root', $projectRoot,
+        '--theme-package', $themePackagePath,
         '--mode', $Mode,
         '--state-file', $injectionStatePath
     )
@@ -427,6 +478,7 @@ try {
     $session = [ordered]@{
         schemaVersion = $script:FssSchemaVersion
         mode = $Mode
+        activeTheme = $activeTheme
         port = $port
         browserId = $cdpIdentity.BrowserId
         browser = $cdpIdentity.Browser
@@ -447,6 +499,7 @@ try {
     $sessionWritten = $true
     Set-FssHistorySessionFields -Fields ([ordered]@{
             schemaVersion = $script:FssSchemaVersion
+            activeTheme = $activeTheme
             port = $port
             browserId = $cdpIdentity.BrowserId
             browser = $cdpIdentity.Browser
@@ -480,8 +533,14 @@ try {
 
     $failureStage = 'ready-identity-validation'
     $ready = Read-FssJson -Path $readyPath
+    $readyThemeId = $null
+    if ($null -ne $ready -and $ready.PSObject.Properties.Name -contains 'theme' -and
+        $null -ne $ready.theme -and $ready.theme.PSObject.Properties.Name -contains 'id') {
+        $readyThemeId = "$($ready.theme.id)"
+    }
     if ([int]$ready.port -ne $port -or "$($ready.browserId)" -ne $cdpIdentity.BrowserId -or
-        "$($ready.mode)" -ne $Mode -or [int]$ready.injectorPid -ne $injectorProcess.Id) {
+        "$($ready.mode)" -ne $Mode -or $readyThemeId -ne $activeTheme -or
+        [int]$ready.injectorPid -ne $injectorProcess.Id) {
         throw 'The injector readiness identity did not match the launched session.'
     }
 

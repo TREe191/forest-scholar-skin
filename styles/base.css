@@ -1,0 +1,35 @@
+html.forest-scholar-skin {
+  --codex-skin-surface: Canvas;
+  --codex-skin-main-wash: transparent;
+  --codex-skin-sidebar-surface: Canvas;
+  --codex-skin-chrome-surface: Canvas;
+  --codex-skin-main-content-surface: transparent;
+  --codex-skin-work-gradient-strong: Canvas;
+  --codex-skin-work-gradient-middle: transparent;
+  --codex-skin-work-gradient-clear: transparent;
+  background: var(--codex-skin-surface) !important;
+}
+
+html.forest-scholar-skin body {
+  background: transparent !important;
+}
+
+html.forest-scholar-skin [data-forest-scholar-app-root="true"] {
+  position: relative !important;
+  z-index: 1 !important;
+  min-height: 100vh;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+#forest-scholar-skin-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+  pointer-events: none !important;
+  user-select: none !important;
+  background-color: var(--codex-skin-surface);
+  background-repeat: no-repeat;
+}

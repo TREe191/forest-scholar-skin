@@ -3,14 +3,14 @@
   "shared": {
     "mode": "focus-soft",
     "focalRegion": {
-      "x": 0.62,
-      "y": 0.1,
+      "x": 0.63,
+      "y": 0.04,
       "width": 0.34,
-      "height": 0.78
+      "height": 0.84
     },
     "anchor": {
-      "x": 0.82,
-      "y": 0.52
+      "x": 0.84,
+      "y": 0.48
     },
     "safePadding": {
       "left": 24,
@@ -18,7 +18,7 @@
       "top": 24,
       "bottom": 24
     },
-    "focusTolerance": 0.08,
+    "focusTolerance": 0.1,
     "scale": 1,
     "minScale": null,
     "maxScale": null,
@@ -28,7 +28,7 @@
     }
   },
   "variants": {
-    "Light": {},
-    "Dark": {}
+    "light": {},
+    "dark": {}
   }
 }

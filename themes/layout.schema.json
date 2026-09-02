@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://forest-scholar.local/schemas/layout.schema.json",
-  "title": "Forest Scholar background layout configuration",
+  "$id": "https://codex-skin.local/schemas/layout.schema.json",
+  "title": "Codex Skin background layout configuration",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "shared", "variants"],
@@ -11,10 +11,10 @@
     "variants": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["Light", "Dark"],
+      "required": ["light", "dark"],
       "properties": {
-        "Light": { "$ref": "#/$defs/layoutOverride" },
-        "Dark": { "$ref": "#/$defs/layoutOverride" }
+        "light": { "$ref": "#/$defs/layoutOverride" },
+        "dark": { "$ref": "#/$defs/layoutOverride" }
       }
     }
   },

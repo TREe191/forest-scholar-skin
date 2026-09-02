@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { calculateBackgroundLayout, resolveLayoutConfig } from "./layout-engine.mjs";
+import { calculateBackgroundLayout } from "./layout-engine.mjs";
+import { loadThemePackage } from "./theme-loader.mjs";
 
 const STYLE_ID = "forest-scholar-skin-style";
 const LAYER_ID = "forest-scholar-skin-background";
 const ROOT_ATTRIBUTE = "data-forest-scholar-app-root";
 const STATE_KEY = "__FOREST_SCHOLAR_SKIN_STATE__";
-const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 const IDENTIFIER = /^[A-Za-z0-9._-]{1,200}$/;
 const RENDERER_PROBE_COUNT = 2;
 const RENDERER_PROBE_INTERVAL_MS = 250;
@@ -28,6 +28,7 @@ function parseArgs(argv) {
     port: null,
     browserId: null,
     root: null,
+    themePackage: null,
     mode: "Dark",
     action: "watch",
     stateFile: null,
@@ -38,6 +39,7 @@ function parseArgs(argv) {
     if (arg === "--port") options.port = Number(argv[++index]);
     else if (arg === "--browser-id") options.browserId = argv[++index];
     else if (arg === "--root") options.root = argv[++index];
+    else if (arg === "--theme-package") options.themePackage = argv[++index];
     else if (arg === "--mode") options.mode = argv[++index];
     else if (arg === "--state-file") options.stateFile = argv[++index];
     else if (arg === "--watch") options.action = "watch";
@@ -52,6 +54,7 @@ function parseArgs(argv) {
   }
   if (!IDENTIFIER.test(options.browserId ?? "")) throw new Error("Invalid browser ID.");
   if (!options.root) throw new Error("--root is required.");
+  if (options.action === "watch" && !options.themePackage) throw new Error("--theme-package is required in watch mode.");
   if (!["Light", "Dark", "Auto"].includes(options.mode)) throw new Error("Mode must be Light, Dark, or Auto.");
   return options;
 }
@@ -449,15 +452,15 @@ function buildInstallExpression(payload, waitForShell) {
           refreshThemeObservation();
         }
 
-        const detected = detectMode();
-        const targetMode = detected?.mode || currentMode || initialMode;
+        const detected = payload.mode === 'Auto' ? detectMode() : null;
+        const targetMode = payload.mode === 'Auto' ? (detected?.mode || currentMode || initialMode) : payload.mode;
         const targetClass = 'forest-scholar-' + targetMode.toLowerCase();
         const otherClass = targetMode === 'Dark' ? 'forest-scholar-light' : 'forest-scholar-dark';
         const targetImage = 'url("' + payload.images[targetMode].dataUrl + '")';
         const rootClassMissing = currentMode === targetMode && (!document.documentElement.classList.contains('forest-scholar-skin') ||
           !document.documentElement.classList.contains(targetClass) || document.documentElement.classList.contains(otherClass));
         const backgroundImageMissing = currentMode === targetMode && layer.style.backgroundImage !== targetImage;
-        applyMode(targetMode, detected?.signal || currentSignal || 'self-heal-fallback');
+        applyMode(targetMode, detected?.signal || (payload.mode === 'Auto' ? currentSignal : 'manual-override') || 'self-heal-fallback');
         if (rootClassMissing) {
           repairCounts.rootClass += 1;
           repaired.push('root-class');
@@ -560,7 +563,14 @@ function buildInstallExpression(payload, waitForShell) {
           constraintSatisfied: lastLayout.constraintSatisfied
         } : null
       });
-      window[stateKey] = { version: 4, launchMode: payload.mode, getMode: () => currentMode, getStatus, cleanup };
+      window[stateKey] = {
+        version: 4,
+        launchMode: payload.mode,
+        theme: { ...payload.theme },
+        getMode: () => currentMode,
+        getStatus,
+        cleanup
+      };
       const computedBackgroundImage = getComputedStyle(layer).backgroundImage;
       return {
         installed: true,
@@ -704,39 +714,23 @@ function buildVisibilityOffExpression() {
   })()`;
 }
 
-async function loadPayload(root, mode) {
+async function loadPayload(root, themePackage, mode) {
   const realRoot = await fs.realpath(root);
-  const cssPath = path.join(realRoot, "styles", "mvp.css");
-  const layoutPath = path.join(realRoot, "config", "layout.json");
-  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
-  const encodeImage = (image, imageMode) => {
-    if (image.length < 24 || image.length > MAX_IMAGE_BYTES) {
-      throw new Error(`${imageMode} background image size is outside the MVP safety limit.`);
-    }
-    if (!pngSignature.every((value, index) => image[index] === value)) {
-      throw new Error(`${imageMode} background asset is not a valid PNG signature.`);
-    }
-    if (image.toString("ascii", 12, 16) !== "IHDR") {
-      throw new Error(`${imageMode} background asset does not contain a valid PNG IHDR header.`);
-    }
-    const width = image.readUInt32BE(16);
-    const height = image.readUInt32BE(20);
-    if (width <= 0 || height <= 0) {
-      throw new Error(`${imageMode} background asset has invalid intrinsic dimensions.`);
-    }
-    const base64 = image.toString("base64");
-    const dataUrl = `data:image/png;base64,${base64}`;
+  const theme = await loadThemePackage(themePackage);
+  const encodeImage = (background) => {
+    const base64 = background.bytes.toString("base64");
+    const dataUrl = `data:${background.mimeType};base64,${base64}`;
     return {
       dataUrl,
-      width,
-      height,
+      width: background.width,
+      height: background.height,
       stats: {
-        sourceBytes: image.length,
-        width,
-        height,
+        sourceBytes: background.bytes.length,
+        width: background.width,
+        height: background.height,
         base64Length: base64.length,
         dataUrlLength: dataUrl.length,
-        mimeType: "image/png",
+        mimeType: background.mimeType,
         base64HasNewline: /[\r\n]/.test(base64),
         dataUrlHasQuote: /["']/.test(dataUrl),
         dataUrlHasBackslash: /\\/.test(dataUrl),
@@ -745,31 +739,27 @@ async function loadPayload(root, mode) {
       },
     };
   };
-  const [css, layoutSource, lightImage, darkImage] = await Promise.all([
-    fs.readFile(cssPath, "utf8"),
-    fs.readFile(layoutPath, "utf8"),
-    fs.readFile(path.join(realRoot, "assets", "forest-scholar-light.png")),
-    fs.readFile(path.join(realRoot, "assets", "forest-scholar-dark.png")),
+  const [baseCss, compatibilityCss] = await Promise.all([
+    fs.readFile(path.join(realRoot, "styles", "base.css"), "utf8"),
+    fs.readFile(path.join(realRoot, "styles", "codex-compat.css"), "utf8"),
   ]);
-  let layoutDocument;
-  try {
-    layoutDocument = JSON.parse(layoutSource);
-  } catch (error) {
-    throw new Error(`The background layout configuration is not valid JSON: ${error.message}`);
-  }
-  const light = encodeImage(lightImage, "Light");
-  const dark = encodeImage(darkImage, "Dark");
-  const layouts = {
-    Light: resolveLayoutConfig(layoutDocument, "Light"),
-    Dark: resolveLayoutConfig(layoutDocument, "Dark"),
-  };
+  const light = encodeImage(theme.variants.light.background);
+  const dark = encodeImage(theme.variants.dark.background);
   return {
-    css,
+    theme: {
+      id: theme.manifest.id,
+      name: theme.manifest.name,
+      version: theme.manifest.version,
+    },
+    css: [baseCss, compatibilityCss, ...theme.styles.map((style) => style.content)].join("\n\n"),
     images: {
       Light: { dataUrl: light.dataUrl, width: light.width, height: light.height },
       Dark: { dataUrl: dark.dataUrl, width: dark.width, height: dark.height },
     },
-    layouts,
+    layouts: {
+      Light: theme.variants.light.layoutConfig,
+      Dark: theme.variants.dark.layoutConfig,
+    },
     imageStats: {
       Light: light.stats,
       Dark: dark.stats,
@@ -1011,7 +1001,7 @@ async function watchAndInject(options) {
   anchor.addEventListener("close", () => { anchorClosed = true; });
   anchor.addEventListener("error", () => { anchorClosed = true; });
 
-  const payload = await loadPayload(options.root, options.mode);
+  const payload = await loadPayload(options.root, options.themePackage, options.mode);
   const runtimeDir = path.join(options.root, "runtime");
   const injectionStatePath = options.stateFile ?? path.join(runtimeDir, "injection-state.json");
   const readyPath = path.join(runtimeDir, "ready.json");
@@ -1082,6 +1072,7 @@ async function watchAndInject(options) {
           port: options.port,
           browserId: options.browserId,
           mode: options.mode,
+          theme: { ...payload.theme },
           injectorPid: process.pid,
           nodePath: process.execPath,
           targets: [...attached].map(([targetId, value]) => ({

@@ -189,8 +189,8 @@ test("variant configuration resolves without embedding a theme in the engine", (
   const resolved = resolveLayoutConfig({
     schemaVersion: 1,
     shared: base("focus-soft"),
-    variants: { Light: {}, Dark: { anchor: { x: 0.7 } } },
-  }, "Dark");
+    variants: { light: {}, dark: { anchor: { x: 0.7 } } },
+  }, "dark");
   close(resolved.anchor.x, 0.7);
   close(resolved.anchor.y, 0.5);
 });

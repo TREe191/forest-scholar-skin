@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "minimal-theme",
+  "name": "Minimal Test Theme",
+  "version": "1.0.0",
+  "author": "Test fixture",
+  "description": "A minimal local fixture for Theme Loader tests.",
+  "variants": {
+    "light": { "background": "assets/light.png" },
+    "dark": { "background": "assets/dark.png" }
+  },
+  "layout": "layout.json",
+  "styles": ["styles/theme.css"],
+  "capabilities": {
+    "light": true,
+    "dark": true,
+    "autoAppearance": true
+  }
+}

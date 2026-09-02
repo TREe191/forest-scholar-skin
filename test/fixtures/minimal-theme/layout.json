@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "shared": {
+    "mode": "focus-soft",
+    "focalRegion": { "x": 0.25, "y": 0.25, "width": 0.5, "height": 0.5 },
+    "anchor": { "x": 0.5, "y": 0.5 },
+    "safePadding": { "left": 0, "right": 0, "top": 0, "bottom": 0 },
+    "focusTolerance": 0.1,
+    "scale": 1,
+    "minScale": null,
+    "maxScale": null,
+    "offset": { "x": 0, "y": 0 }
+  },
+  "variants": {
+    "light": {},
+    "dark": {}
+  }
+}
