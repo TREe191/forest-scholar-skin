@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forest-scholar.local/schemas/layout.schema.json",
+  "title": "Forest Scholar background layout configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "shared", "variants"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "shared": { "$ref": "#/$defs/layout" },
+    "variants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Light", "Dark"],
+      "properties": {
+        "Light": { "$ref": "#/$defs/layoutOverride" },
+        "Dark": { "$ref": "#/$defs/layoutOverride" }
+      }
+    }
+  },
+  "$defs": {
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "positive": { "type": "number", "exclusiveMinimum": 0 },
+    "focalRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "$ref": "#/$defs/unit" },
+        "y": { "$ref": "#/$defs/unit" },
+        "width": { "$ref": "#/$defs/positive" },
+        "height": { "$ref": "#/$defs/positive" }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "$ref": "#/$defs/unit" },
+        "y": { "$ref": "#/$defs/unit" }
+      }
+    },
+    "safePadding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "right", "top", "bottom"],
+      "properties": {
+        "left": { "type": "number", "minimum": 0 },
+        "right": { "type": "number", "minimum": 0 },
+        "top": { "type": "number", "minimum": 0 },
+        "bottom": { "type": "number", "minimum": 0 }
+      }
+    },
+    "offset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "focalRegion", "anchor", "safePadding", "focusTolerance"],
+      "properties": {
+        "mode": { "enum": ["contain", "cover", "focus-lock", "focus-soft"] },
+        "focalRegion": { "$ref": "#/$defs/focalRegion" },
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "safePadding": { "$ref": "#/$defs/safePadding" },
+        "focusTolerance": { "$ref": "#/$defs/unit" },
+        "scale": { "$ref": "#/$defs/positive" },
+        "minScale": { "anyOf": [{ "$ref": "#/$defs/positive" }, { "type": "null" }] },
+        "maxScale": { "anyOf": [{ "$ref": "#/$defs/positive" }, { "type": "null" }] },
+        "offset": { "$ref": "#/$defs/offset" }
+      }
+    },
+    "layoutOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["contain", "cover", "focus-lock", "focus-soft"] },
+        "focalRegion": { "$ref": "#/$defs/focalRegion" },
+        "anchor": { "$ref": "#/$defs/anchor" },
+        "safePadding": { "$ref": "#/$defs/safePadding" },
+        "focusTolerance": { "$ref": "#/$defs/unit" },
+        "scale": { "$ref": "#/$defs/positive" },
+        "minScale": { "anyOf": [{ "$ref": "#/$defs/positive" }, { "type": "null" }] },
+        "maxScale": { "anyOf": [{ "$ref": "#/$defs/positive" }, { "type": "null" }] },
+        "offset": { "$ref": "#/$defs/offset" }
+      }
+    }
+  }
+}

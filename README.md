@@ -1,4 +1,4 @@
-# Forest Scholar Skin — CDP MVP
+# Forest Scholar Skin — CDP v0.2
 
 这是 Forest Scholar Theme 的本机 CDP 版本。它通过本次启动的 Codex 所开放的本机 CDP，把 Forest Scholar 背景和一小段 CSS 加入 renderer；不会修改 WindowsApps、`app.asar`、MSIX 或签名文件。统一入口会自动跟随 Codex 自身的 Light / Dark 外观设置。
 
@@ -37,6 +37,27 @@
 - 在连接前及运行中反复核验监听地址、监听 PID 的可执行路径、Browser WebSocket ID、`app://` target 与少量布尔 DOM 标记。
 - DOM 探测不读取 `textContent`、`innerText`、输入值、Cookie、存储、账户信息、聊天内容或应用网络内容。
 - 注入器只创建自己命名的 style、背景 div、根节点属性和 class；Disable / Restore 只清理这些命名对象。
+- v0.2 使用独立纯函数布局引擎，根据图片固有尺寸、viewport 和主题配置计算精确像素 `background-size` / `background-position`；布局算法不读取 DOM、文件或 CDP。
+- renderer 通过 `ResizeObserver` 观察 viewport，并用 `requestAnimationFrame` 合并连续缩放更新；尺寸未变化时不会重复计算或写入样式。
+
+## 背景布局配置
+
+`config/layout.json` 是可由未来 GUI 编辑的主题布局数据，Light / Dark 当前共享同一组 Forest Scholar 参数。`config/layout.schema.json` 描述字段结构。
+
+支持四种通用模式：
+
+- `contain`：完整显示图片，不主动裁剪。
+- `cover`：铺满 viewport，允许标准居中/锚点裁剪。
+- `focus-lock`：优先让焦点区域完整进入安全区域；无法满足时明确报告约束失败。
+- `focus-soft`：在铺满画面和焦点可见性之间折中，允许 `focusTolerance` 指定的有限裁剪。
+
+`focalRegion` 与 `anchor` 使用 0–1 归一化坐标；`offset.x/y` 使用 viewport 比例；`safePadding` 使用 CSS 像素。`scale` 是相对当前模式基础缩放的倍率，`minScale` / `maxScale` 是最终图片缩放边界。布局引擎返回裁剪信息、焦点实际/安全可见矩形、可见比例与约束状态，供未来预览界面复用。
+
+离线运行通用几何测试：
+
+```powershell
+node --test .\test\layout-engine.test.mjs
+```
 
 ## 文件与资源
 
@@ -44,6 +65,9 @@
 - `assets/forest-scholar-dark.png`：用户提供的 Dark 最终背景，原样复制。
 - `assets/SHA256SUMS.txt`：资源 SHA-256。
 - `styles/mvp.css`：仅背景层与主内容最小透明处理；未开始第二阶段组件样式重构。
+- `config/layout.json`：Forest Scholar 的响应式布局与焦点配置。
+- `config/layout.schema.json`：布局配置 JSON Schema。
+- `scripts/layout-engine.mjs`：无 DOM/文件/CDP 依赖的纯布局计算模块。
 - `scripts/Start-ForestScholarSkin.ps1`：安全启动与身份核验。
 - `scripts/injector.mjs`：无第三方依赖的本机 CDP 注入器，并监听 Codex 根节点的主题信号以自动切换 Light / Dark 资源。
 - `scripts/Disable-ForestScholarSkin.ps1`：运行中移除视觉注入。
@@ -63,7 +87,7 @@ E65EA5FE9B0D47424C5727ED83D16D84508FECF9C2CDD6402FB99A857F9CB3AF  forest-scholar
 - 首次实机启动前未重启当前 Codex；AppX 激活参数是否被当前版本完整接受，要以首次手动测试为准。
 - Codex 更新后，DOM 结构标记可能变化。脚本会拒绝未通过核验的 renderer，而不是扩大探测范围。
 - 这是 MVP：某些页面的原生不透明 surface 可能遮住部分背景；Settings、Work、Task、代码块和 Diff 尚未进行第二阶段处理。
-- 背景以原比例 `contain` 并靠右居中显示，不会拉伸；窗口比例差异可能产生留白。
+- 背景保持原比例，并由 `focus-soft` 配置优先保留右侧主体；极端窗口比例下仍可能裁剪非焦点区域，若配置约束无法满足，布局结果会明确标记失败。
 - 注入器把原始 PNG 作为本地 data URL 传入 renderer，会增加约数 MB 的运行时内存占用，但不会修改图片文件。
 - 当前受限开发会话无法完整模拟用户桌面会话中的 AppX/AUMID 查询，因此首次测试若停在包注册解析，应保留错误窗口并反馈；脚本不会因此自动读取清单或访问安装目录。
 

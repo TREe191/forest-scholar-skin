@@ -15,4 +15,7 @@ Desktop.ini
 .vscode/
 .idea/
 test/
+!test/
+test/*
+!test/layout-engine.test.mjs
 Restore-BackgroundProbe.cmd

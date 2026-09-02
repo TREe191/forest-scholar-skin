@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { calculateBackgroundLayout, resolveLayoutConfig } from "./layout-engine.mjs";
 
 const STYLE_ID = "forest-scholar-skin-style";
 const LAYER_ID = "forest-scholar-skin-background";
@@ -263,8 +264,10 @@ function rendererIsCodex(probe) {
 
 function buildInstallExpression(payload, waitForShell) {
   const serialized = JSON.stringify(payload);
+  const calculateLayoutSource = calculateBackgroundLayout.toString();
   return `(() => {
     const payload = ${serialized};
+    const calculateBackgroundLayout = ${calculateLayoutSource};
     const styleId = ${JSON.stringify(STYLE_ID)};
     const layerId = ${JSON.stringify(LAYER_ID)};
     const rootAttribute = ${JSON.stringify(ROOT_ATTRIBUTE)};
@@ -292,8 +295,6 @@ function buildInstallExpression(payload, waitForShell) {
       layer.id = layerId;
       layer.setAttribute('aria-hidden', 'true');
       layer.setAttribute('role', 'presentation');
-      layer.style.backgroundSize = 'contain';
-      layer.style.backgroundPosition = 'right center';
       layer.style.backgroundRepeat = 'no-repeat';
       document.body.insertBefore(layer, document.body.firstChild);
 
@@ -337,6 +338,31 @@ function buildInstallExpression(payload, waitForShell) {
 
       let currentMode = null;
       let currentSignal = null;
+      let lastViewportWidth = null;
+      let lastViewportHeight = null;
+      let lastLayout = null;
+      let layoutFrame = null;
+      let resizeObserver = null;
+      let resizeFallback = null;
+      const applyLayout = (force = false) => {
+        if (!currentMode || !payload.layouts[currentMode] || !payload.images[currentMode]) return false;
+        const viewportWidth = document.documentElement?.clientWidth || window.innerWidth;
+        const viewportHeight = document.documentElement?.clientHeight || window.innerHeight;
+        if (!(viewportWidth > 0 && viewportHeight > 0)) return false;
+        if (!force && viewportWidth === lastViewportWidth && viewportHeight === lastViewportHeight) return false;
+        const image = payload.images[currentMode];
+        const result = calculateBackgroundLayout(
+          { width: image.width, height: image.height },
+          { width: viewportWidth, height: viewportHeight },
+          payload.layouts[currentMode]
+        );
+        layer.style.backgroundSize = result.renderedWidth.toFixed(3) + 'px ' + result.renderedHeight.toFixed(3) + 'px';
+        layer.style.backgroundPosition = result.offsetX.toFixed(3) + 'px ' + result.offsetY.toFixed(3) + 'px';
+        lastViewportWidth = viewportWidth;
+        lastViewportHeight = viewportHeight;
+        lastLayout = result;
+        return true;
+      };
       const applyMode = (targetMode, signal) => {
         if (!payload.images[targetMode]) return false;
         const targetClass = 'forest-scholar-' + targetMode.toLowerCase();
@@ -356,6 +382,7 @@ function buildInstallExpression(payload, waitForShell) {
         layer.style.backgroundImage = targetImage;
         currentMode = targetMode;
         currentSignal = signal;
+        applyLayout(true);
         return true;
       };
 
@@ -369,6 +396,17 @@ function buildInstallExpression(payload, waitForShell) {
       let themeObserver = null;
       let integrityObserver = null;
       let layerObserver = null;
+      const scheduleLayout = () => {
+        if (disposed) return;
+        const viewportWidth = document.documentElement?.clientWidth || window.innerWidth;
+        const viewportHeight = document.documentElement?.clientHeight || window.innerHeight;
+        if (viewportWidth === lastViewportWidth && viewportHeight === lastViewportHeight) return;
+        if (layoutFrame != null) return;
+        layoutFrame = requestAnimationFrame(() => {
+          layoutFrame = null;
+          applyLayout(false);
+        });
+      };
       const repairCounts = { cycles: 0, layer: 0, style: 0, rootClass: 0, backgroundImage: 0, appRoot: 0 };
       let lastRepairAt = null;
       let lastRepairReason = null;
@@ -477,6 +515,13 @@ function buildInstallExpression(payload, waitForShell) {
         }
       });
       layerObserver.observe(layer, { attributes: true, attributeFilter: ['style'] });
+      if (typeof ResizeObserver === 'function') {
+        resizeObserver = new ResizeObserver(scheduleLayout);
+        resizeObserver.observe(document.documentElement);
+      } else {
+        resizeFallback = scheduleLayout;
+        window.addEventListener('resize', resizeFallback, { passive: true });
+      }
 
       const cleanup = () => {
         disposed = true;
@@ -485,6 +530,10 @@ function buildInstallExpression(payload, waitForShell) {
         themeObserver?.disconnect();
         integrityObserver?.disconnect();
         layerObserver?.disconnect();
+        resizeObserver?.disconnect();
+        if (resizeFallback) window.removeEventListener('resize', resizeFallback);
+        if (layoutFrame != null) cancelAnimationFrame(layoutFrame);
+        layoutFrame = null;
         document.getElementById(styleId)?.remove();
         document.getElementById(layerId)?.remove();
         document.querySelectorAll('[' + rootAttribute + ']').forEach((node) => node.removeAttribute(rootAttribute));
@@ -498,9 +547,20 @@ function buildInstallExpression(payload, waitForShell) {
         repairCounts: { ...repairCounts },
         lastRepairAt,
         lastRepairReason,
-        selfHealSuppressed
+        selfHealSuppressed,
+        layout: lastLayout ? {
+          mode: lastLayout.mode,
+          viewportWidth: lastViewportWidth,
+          viewportHeight: lastViewportHeight,
+          renderedWidth: lastLayout.renderedWidth,
+          renderedHeight: lastLayout.renderedHeight,
+          offsetX: lastLayout.offsetX,
+          offsetY: lastLayout.offsetY,
+          focalVisibleRatio: lastLayout.focal.visibleRatio,
+          constraintSatisfied: lastLayout.constraintSatisfied
+        } : null
       });
-      window[stateKey] = { version: 3, launchMode: payload.mode, getMode: () => currentMode, getStatus, cleanup };
+      window[stateKey] = { version: 4, launchMode: payload.mode, getMode: () => currentMode, getStatus, cleanup };
       const computedBackgroundImage = getComputedStyle(layer).backgroundImage;
       return {
         installed: true,
@@ -647,20 +707,33 @@ function buildVisibilityOffExpression() {
 async function loadPayload(root, mode) {
   const realRoot = await fs.realpath(root);
   const cssPath = path.join(realRoot, "styles", "mvp.css");
+  const layoutPath = path.join(realRoot, "config", "layout.json");
   const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
   const encodeImage = (image, imageMode) => {
-    if (image.length < 8 || image.length > MAX_IMAGE_BYTES) {
+    if (image.length < 24 || image.length > MAX_IMAGE_BYTES) {
       throw new Error(`${imageMode} background image size is outside the MVP safety limit.`);
     }
     if (!pngSignature.every((value, index) => image[index] === value)) {
       throw new Error(`${imageMode} background asset is not a valid PNG signature.`);
     }
+    if (image.toString("ascii", 12, 16) !== "IHDR") {
+      throw new Error(`${imageMode} background asset does not contain a valid PNG IHDR header.`);
+    }
+    const width = image.readUInt32BE(16);
+    const height = image.readUInt32BE(20);
+    if (width <= 0 || height <= 0) {
+      throw new Error(`${imageMode} background asset has invalid intrinsic dimensions.`);
+    }
     const base64 = image.toString("base64");
     const dataUrl = `data:image/png;base64,${base64}`;
     return {
       dataUrl,
+      width,
+      height,
       stats: {
         sourceBytes: image.length,
+        width,
+        height,
         base64Length: base64.length,
         dataUrlLength: dataUrl.length,
         mimeType: "image/png",
@@ -672,19 +745,31 @@ async function loadPayload(root, mode) {
       },
     };
   };
-  const [css, lightImage, darkImage] = await Promise.all([
+  const [css, layoutSource, lightImage, darkImage] = await Promise.all([
     fs.readFile(cssPath, "utf8"),
+    fs.readFile(layoutPath, "utf8"),
     fs.readFile(path.join(realRoot, "assets", "forest-scholar-light.png")),
     fs.readFile(path.join(realRoot, "assets", "forest-scholar-dark.png")),
   ]);
+  let layoutDocument;
+  try {
+    layoutDocument = JSON.parse(layoutSource);
+  } catch (error) {
+    throw new Error(`The background layout configuration is not valid JSON: ${error.message}`);
+  }
   const light = encodeImage(lightImage, "Light");
   const dark = encodeImage(darkImage, "Dark");
+  const layouts = {
+    Light: resolveLayoutConfig(layoutDocument, "Light"),
+    Dark: resolveLayoutConfig(layoutDocument, "Dark"),
+  };
   return {
     css,
     images: {
-      Light: { dataUrl: light.dataUrl },
-      Dark: { dataUrl: dark.dataUrl },
+      Light: { dataUrl: light.dataUrl, width: light.width, height: light.height },
+      Dark: { dataUrl: dark.dataUrl, width: dark.width, height: dark.height },
     },
+    layouts,
     imageStats: {
       Light: light.stats,
       Dark: dark.stats,
