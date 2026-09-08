@@ -14,6 +14,72 @@ html.forest-scholar-skin .composer-surface-chrome {
   background-image: none !important;
 }
 
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+[role="presentation"][class*="_ComposerLayoutRoot_"]:not([data-composer-utility-bar-variant="home"]) {
+  --composer-layout-surface-background: var(--codex-skin-chrome-surface) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+div[class*="--thread-floating-content-top-inset"]
+div.bg-surface-elevated-secondary.rounded-3xl {
+  background-color: var(--codex-skin-chrome-surface) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+div[class*="@container/home-mode-toggle"]
+div[role="group"]
+> span.bg-background-mode-toggle-track {
+  background-color: var(--codex-skin-chrome-track-surface) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+div[class*="@container/home-mode-toggle"]
+div[role="group"]
+> span[class*="_indicator_"] {
+  background-color: var(--codex-skin-chrome-selected-surface) !important;
+  border-color: color-mix(in srgb, var(--codex-skin-accent) 28%, transparent) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+div[class*="@container/home-mode-toggle"]
+div[role="group"]
+> button[aria-pressed="true"] {
+  color: var(--codex-skin-foreground) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+div[class*="@container/home-mode-toggle"]
+div[role="group"]
+> button[aria-pressed="false"] {
+  color: var(--codex-skin-foreground-muted) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+header[data-app-shell-application-menu-bar="true"]
+[data-app-shell-header-toolbar] button.text-default.text-start,
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+header[data-app-shell-application-menu-bar="true"]
+button.text-default.aspect-square[aria-pressed="true"] {
+  color: var(--codex-skin-foreground) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+header[data-app-shell-application-menu-bar="true"]
+button.text-tertiary {
+  color: var(--codex-skin-foreground-muted) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+div[class*="_ApplicationMenuTopBar_"] {
+  background-color: var(--codex-skin-topbar-surface) !important;
+}
+
+html.forest-scholar-skin[data-skin-visual-adaptation="universal"]
+div[class*="_ApplicationMenuTopBar_"]
+> div[role="menubar"] > button[role="menuitem"].text-tertiary {
+  color: var(--codex-skin-foreground) !important;
+}
+
 html.forest-scholar-skin main[class*="MainContentSurface"] {
   background-color: var(--codex-skin-main-content-surface) !important;
 }

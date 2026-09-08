@@ -1,24 +1,40 @@
-# Forest Scholar Skin — CDP v0.3
+# Codex Skin Theme Manager — pre-v0.4
 
 这是 Forest Scholar Theme 的本机 CDP 版本。它通过本次启动的 Codex 所开放的本机 CDP，把所选 Theme Package 的背景和 CSS 加入 renderer；不会修改 WindowsApps、`app.asar`、MSIX 或签名文件。v0.3 使用 Manifest 和通用 Theme Loader，Forest Scholar 是第一套正式主题包。
+
+## Theme Manager v0.4（开发版）
+
+`gui/` 提供本地 Electron Theme Manager，可扫描经过现有 Theme Loader 验证的主题包、预览 Light/Dark 适配资源，并设置 Skin adaptation。默认的 Follow Codex 会让皮肤跟随 Codex 当前外观；Advanced 中的 Force light/dark 只强制皮肤资源，不会改变 Codex 自身外观。底层仍兼容 `config/app.json` schemaVersion 1 的 `appearance` 字段。GUI 不重新实现 Theme Package 校验，也不直接访问 CDP、injector 或 Codex renderer。
+
+首次开发运行：
+
+```powershell
+cd .\gui
+npm install
+npm start
+```
+
+也可以双击根目录的 `Start-ThemeManager.cmd`。该入口只定位 `gui/` 并运行开发命令，不包含主题或启动业务逻辑。GUI 中的 Launch Codex 固定调用 `scripts/Start-ForestScholarSkin.ps1 -Mode Auto`；Restore Codex 固定调用 `scripts/Restore-ForestScholarSkin.ps1`。
 
 ## 首次测试
 
 1. 保存当前工作，并关闭所有 Codex 窗口。
 2. 等待数秒，确认 Codex 已完全退出。
-3. 确认 `config/app.json` 中的 `activeTheme` 和 `appearance`，然后双击 `Start-ForestScholar.cmd`。
+3. 完成上述 GUI 依赖安装后，双击 `Start-ThemeManager.cmd`，选择主题和 Skin adaptation，点击 Apply，再点击 Launch Codex。
 4. 启动器会从动态高位端口中选择一个空闲端口，只接受 `127.0.0.1` 监听；完成身份核验后才连接 renderer。
 
-`appearance` 支持 `auto`、`light`、`dark`。`auto` 会跟随 Codex 自身的当前外观及后续切换；固定值会保持对应变体。`Start-ForestScholar-Light.cmd` 和 `Start-ForestScholar-Dark.cmd` 会临时覆盖本次启动的 appearance，但不会修改 `app.json`。
+`appearance` 支持 `auto`、`light`、`dark`。`auto` 会跟随 Codex 自身的当前外观及后续切换；固定值仅强制皮肤适配，不改变 Codex 外观，可能造成可读性不匹配。旧的直接启动 CMD 已移除，统一通过 Theme Manager 的 Launch Codex 启动。
+
+`config/app.json` 是受版本控制的启动配置，同时会被 GUI 的 Apply 更新。仓库当前基线为 `phainon` + `auto`；提交前检查该文件的 diff，不要把个人测试选择带入发布提交。本轮不引入新的配置覆盖机制。
 
 ## 桌面快捷方式
 
 首次使用时双击 `Install-Shortcuts.cmd`，桌面会创建：
 
-- `Forest Scholar`：指向项目中的统一自动入口。
+- `Forest Scholar`：为兼容已有桌面名称而保留，现指向项目中的 `Start-ThemeManager.cmd`，只打开 GUI，不直接启动 Codex。
 - `Restore Forest Scholar`：指向项目中的完整恢复入口。
 
-安装过程不需要管理员权限，不写注册表，也不创建开机自启。项目目录移动后，快捷方式会自然失效。双击 `Remove-Shortcuts.cmd` 可删除上述快捷方式；它也会清理早期版本可能留下的 Light / Dark 快捷方式，但不会删除项目文件。
+安装过程不需要管理员权限，不写注册表，也不创建开机自启。已安装过旧快捷方式的用户需要重新运行一次安装器以更新目标；首次使用直接运行即可。项目目录移动后，快捷方式会自然失效。双击 `Remove-Shortcuts.cmd` 可删除上述快捷方式；它也会清理早期版本可能留下的 Light / Dark 快捷方式，但不会删除项目文件。
 
 启动器不会自动关闭已经运行的 Codex。如果检测到任何 `ChatGPT.exe` 进程，它会停止并要求先手动关闭，以免中断当前任务。
 

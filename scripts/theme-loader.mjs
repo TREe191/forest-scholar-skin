@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveLayoutConfig } from "./layout-engine.mjs";
 
-const THEME_SCHEMA_VERSION = 1;
+const SUPPORTED_THEME_SCHEMA_VERSIONS = new Set([1, 2]);
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_LAYOUT_BYTES = 256 * 1024;
 const MAX_CSS_BYTES = 1024 * 1024;
@@ -85,15 +85,7 @@ function parseJson(buffer, label) {
   }
 }
 
-function validateManifest(manifest) {
-  assertPlainObject(manifest, "theme.json");
-  assertAllowedKeys(manifest, new Set([
-    "$schema", "schemaVersion", "id", "name", "version", "author", "description",
-    "variants", "layout", "styles", "capabilities",
-  ]), "theme.json");
-  if (manifest.schemaVersion !== THEME_SCHEMA_VERSION) {
-    throw new RangeError(`Unsupported theme schemaVersion: ${String(manifest.schemaVersion)}.`);
-  }
+function validateCommonManifest(manifest) {
   if (Object.hasOwn(manifest, "$schema") && typeof manifest.$schema !== "string") {
     throw new TypeError("theme.$schema must be a string when present.");
   }
@@ -104,18 +96,6 @@ function validateManifest(manifest) {
   if (!SEMVER.test(manifest.version)) throw new RangeError("theme.version must be a valid semantic version.");
   assertString(manifest.author, "theme.author", 120);
   assertString(manifest.description, "theme.description", 1000);
-  assertPlainObject(manifest.variants, "theme.variants");
-  assertAllowedKeys(manifest.variants, new Set(["light", "dark"]), "theme.variants");
-  for (const variantName of ["light", "dark"]) {
-    const variant = manifest.variants[variantName];
-    if (!variant) throw new RangeError(`theme.variants.${variantName} is required.`);
-    assertPlainObject(variant, `theme.variants.${variantName}`);
-    assertAllowedKeys(variant, new Set(["background"]), `theme.variants.${variantName}`);
-    validatePackageRelativePath(variant.background, `theme.variants.${variantName}.background`);
-    if (path.posix.extname(variant.background) !== ".png") {
-      throw new RangeError(`theme.variants.${variantName}.background must use a lowercase .png extension.`);
-    }
-  }
   validatePackageRelativePath(manifest.layout, "theme.layout");
   if (path.posix.extname(manifest.layout) !== ".json") throw new RangeError("theme.layout must be a .json file.");
   const styles = manifest.styles ?? [];
@@ -124,6 +104,33 @@ function validateManifest(manifest) {
   for (const [index, stylePath] of styles.entries()) {
     validatePackageRelativePath(stylePath, `theme.styles[${index}]`);
     if (path.posix.extname(stylePath) !== ".css") throw new RangeError(`theme.styles[${index}] must be a .css file.`);
+  }
+  return styles;
+}
+
+function validatePngPath(value, label) {
+  const normalized = validatePackageRelativePath(value, label);
+  if (path.posix.extname(normalized) !== ".png") throw new RangeError(`${label} must use a lowercase .png extension.`);
+  return normalized;
+}
+
+function validateManifestV1(manifest, styles) {
+  assertAllowedKeys(manifest, new Set([
+    "$schema", "schemaVersion", "id", "name", "version", "author", "description",
+    "variants", "layout", "styles", "capabilities",
+  ]), "theme.json");
+  assertPlainObject(manifest.variants, "theme.variants");
+  assertAllowedKeys(manifest.variants, new Set(["light", "dark"]), "theme.variants");
+  const backgroundPaths = {};
+  for (const variantName of ["light", "dark"]) {
+    const variant = manifest.variants[variantName];
+    if (!variant) throw new RangeError(`theme.variants.${variantName} is required.`);
+    assertPlainObject(variant, `theme.variants.${variantName}`);
+    assertAllowedKeys(variant, new Set(["background"]), `theme.variants.${variantName}`);
+    backgroundPaths[variantName] = validatePngPath(
+      variant.background,
+      `theme.variants.${variantName}.background`,
+    );
   }
   assertPlainObject(manifest.capabilities, "theme.capabilities");
   assertAllowedKeys(manifest.capabilities, new Set(["light", "dark", "autoAppearance"]), "theme.capabilities");
@@ -135,7 +142,80 @@ function validateManifest(manifest) {
   if (!manifest.capabilities.light || !manifest.capabilities.dark || !manifest.capabilities.autoAppearance) {
     throw new RangeError("Theme schemaVersion 1 requires light, dark, and autoAppearance capabilities.");
   }
-  return { ...manifest, styles };
+  return {
+    manifest: { ...manifest, styles },
+    supportedAppearances: ["light", "dark"],
+    backgroundPaths,
+  };
+}
+
+function validateManifestV2(manifest, styles) {
+  assertAllowedKeys(manifest, new Set([
+    "$schema", "schemaVersion", "id", "name", "version", "author", "description",
+    "compatibility", "background", "layout", "styles",
+  ]), "theme.json");
+  assertPlainObject(manifest.compatibility, "theme.compatibility");
+  assertAllowedKeys(manifest.compatibility, new Set(["codexAppearances"]), "theme.compatibility");
+  const declaredAppearances = manifest.compatibility.codexAppearances;
+  if (!Array.isArray(declaredAppearances) || declaredAppearances.length < 1 || declaredAppearances.length > 2) {
+    throw new RangeError("theme.compatibility.codexAppearances must contain one or two appearances.");
+  }
+  const supportedAppearances = [...new Set(declaredAppearances)];
+  if (supportedAppearances.length !== declaredAppearances.length ||
+      supportedAppearances.some((value) => !["light", "dark"].includes(value))) {
+    throw new RangeError("theme.compatibility.codexAppearances must contain unique light and/or dark values.");
+  }
+
+  assertPlainObject(manifest.background, "theme.background");
+  assertAllowedKeys(manifest.background, new Set(["default", "overrides"]), "theme.background");
+  const defaultBackground = Object.hasOwn(manifest.background, "default")
+    ? validatePngPath(manifest.background.default, "theme.background.default")
+    : null;
+  const overrides = Object.hasOwn(manifest.background, "overrides")
+    ? manifest.background.overrides
+    : {};
+  assertPlainObject(overrides, "theme.background.overrides");
+  assertAllowedKeys(overrides, new Set(["light", "dark"]), "theme.background.overrides");
+  const normalizedOverrides = {};
+  for (const appearance of Object.keys(overrides)) {
+    if (!supportedAppearances.includes(appearance)) {
+      throw new RangeError(`theme.background.overrides.${appearance} is declared for an unsupported Codex appearance.`);
+    }
+    normalizedOverrides[appearance] = validatePngPath(
+      overrides[appearance],
+      `theme.background.overrides.${appearance}`,
+    );
+  }
+  const backgroundPaths = {};
+  for (const appearance of supportedAppearances) {
+    const resolved = normalizedOverrides[appearance] ?? defaultBackground;
+    if (!resolved) throw new RangeError(`No background resolves for supported Codex appearance: ${appearance}.`);
+    backgroundPaths[appearance] = resolved;
+  }
+  return {
+    manifest: {
+      ...manifest,
+      styles,
+      compatibility: { codexAppearances: supportedAppearances },
+      background: {
+        ...(defaultBackground ? { default: defaultBackground } : {}),
+        ...(Object.keys(normalizedOverrides).length > 0 ? { overrides: normalizedOverrides } : {}),
+      },
+    },
+    supportedAppearances,
+    backgroundPaths,
+  };
+}
+
+function validateManifest(manifest) {
+  assertPlainObject(manifest, "theme.json");
+  if (!SUPPORTED_THEME_SCHEMA_VERSIONS.has(manifest.schemaVersion)) {
+    throw new RangeError(`Unsupported theme schemaVersion: ${String(manifest.schemaVersion)}.`);
+  }
+  const styles = validateCommonManifest(manifest);
+  return manifest.schemaVersion === 1
+    ? validateManifestV1(manifest, styles)
+    : validateManifestV2(manifest, styles);
 }
 
 export function validateThemeCss(css, label = "theme CSS") {
@@ -196,7 +276,8 @@ export async function loadThemePackage(themePath) {
     if (error?.code === "ENOENT") throw new RangeError("The theme package is missing theme.json.");
     throw error;
   }
-  const manifest = validateManifest(parseJson(manifestBuffer, "theme.json"));
+  const normalizedManifest = validateManifest(parseJson(manifestBuffer, "theme.json"));
+  const { manifest, supportedAppearances, backgroundPaths } = normalizedManifest;
 
   const layoutFile = await resolvePackageFile(rootPath, manifest.layout, "theme.layout");
   const layoutDocument = parseJson(
@@ -209,22 +290,27 @@ export async function loadThemePackage(themePath) {
   };
 
   const variants = {};
-  for (const variantName of ["light", "dark"]) {
-    const declaredPath = manifest.variants[variantName].background;
-    const file = await resolvePackageFile(rootPath, declaredPath, `theme.variants.${variantName}.background`);
-    const bytes = await readBoundedFile(file.absolutePath, MAX_IMAGE_BYTES, `${variantName} background`);
-    const dimensions = decodePng(bytes, `${variantName} background`);
-    variants[variantName] = {
-      background: {
+  const backgrounds = {};
+  const backgroundCache = new Map();
+  for (const appearance of supportedAppearances) {
+    const declaredPath = backgroundPaths[appearance];
+    let background = backgroundCache.get(declaredPath);
+    if (!background) {
+      const file = await resolvePackageFile(rootPath, declaredPath, `${appearance} background`);
+      const bytes = await readBoundedFile(file.absolutePath, MAX_IMAGE_BYTES, `${appearance} background`);
+      const dimensions = decodePng(bytes, `${appearance} background`);
+      background = {
         relativePath: file.relativePath,
         absolutePath: file.absolutePath,
         bytes,
         mimeType: "image/png",
         width: dimensions.width,
         height: dimensions.height,
-      },
-      layoutConfig: layouts[variantName],
-    };
+      };
+      backgroundCache.set(declaredPath, background);
+    }
+    backgrounds[appearance] = background;
+    variants[appearance] = { background, layoutConfig: layouts[appearance] };
   }
 
   const styles = [];
@@ -242,6 +328,8 @@ export async function loadThemePackage(themePath) {
   return {
     manifest,
     rootPath,
+    supportedAppearances,
+    backgrounds,
     variants,
     layoutConfig: layouts,
     styles,

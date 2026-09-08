@@ -1,0 +1,16 @@
+{
+  "$schema": "../theme.schema.json",
+  "schemaVersion": 2,
+  "id": "universal-demo",
+  "name": "Universal Adapter Demo",
+  "version": "0.1.0",
+  "author": "Codex Skin",
+  "description": "A single-image test package that relies entirely on the Universal Appearance Adapter.",
+  "compatibility": {
+    "codexAppearances": ["light", "dark"]
+  },
+  "background": {
+    "default": "assets/background.png"
+  },
+  "layout": "layout.json"
+}

@@ -14,11 +14,19 @@ Desktop.ini
 # Local editor settings
 .vscode/
 .idea/
-test/
-!test/
+# Keep formal tests and fixtures; exclude local diagnostic launchers.
 test/*
-!test/layout-engine.test.mjs
-!test/theme-loader.test.mjs
+!test/*.test.mjs
+!test/*.test.ps1
 !test/fixtures/
 !test/fixtures/**
 Restore-BackgroundProbe.cmd
+
+# Theme Manager development output
+gui/node_modules/
+gui/out/
+gui/coverage/
+gui/.npm-cache/
+gui/.electron-cache/
+gui/test/.tmp/
+.npm-cache/

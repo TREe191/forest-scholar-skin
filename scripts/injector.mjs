@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { calculateBackgroundLayout } from "./layout-engine.mjs";
-import { loadThemePackage } from "./theme-loader.mjs";
+import { resolveSkinAdaptation } from "./skin-adaptation.mjs";
+import { loadThemePayload } from "./theme-payload.mjs";
 
 const STYLE_ID = "forest-scholar-skin-style";
 const LAYER_ID = "forest-scholar-skin-background";
 const ROOT_ATTRIBUTE = "data-forest-scholar-app-root";
+const VISUAL_ADAPTATION_ATTRIBUTE = "data-skin-visual-adaptation";
 const STATE_KEY = "__FOREST_SCHOLAR_SKIN_STATE__";
 const IDENTIFIER = /^[A-Za-z0-9._-]{1,200}$/;
 const RENDERER_PROBE_COUNT = 2;
@@ -268,12 +270,19 @@ function rendererIsCodex(probe) {
 function buildInstallExpression(payload, waitForShell) {
   const serialized = JSON.stringify(payload);
   const calculateLayoutSource = calculateBackgroundLayout.toString();
+  const resolveAdaptationSource = resolveSkinAdaptation.toString();
   return `(() => {
     const payload = ${serialized};
     const calculateBackgroundLayout = ${calculateLayoutSource};
+    const resolveSkinAdaptation = ${resolveAdaptationSource};
     const styleId = ${JSON.stringify(STYLE_ID)};
     const layerId = ${JSON.stringify(LAYER_ID)};
     const rootAttribute = ${JSON.stringify(ROOT_ATTRIBUTE)};
+    const visualAdaptationAttribute = ${JSON.stringify(VISUAL_ADAPTATION_ATTRIBUTE)};
+    const expectedVisualAdaptation = payload.theme.visualAdaptation;
+    const toneAttribute = 'data-skin-background-tone';
+    const toneForMode = mode => expectedVisualAdaptation === 'universal'
+      ? (payload.backgroundTones?.[mode]?.tone || 'medium') : null;
     const stateKey = ${JSON.stringify(STATE_KEY)};
     let observer = null;
     let timeout = null;
@@ -375,6 +384,9 @@ function buildInstallExpression(payload, waitForShell) {
           document.documentElement.classList.contains('forest-scholar-skin') &&
           document.documentElement.classList.contains(targetClass) &&
           !document.documentElement.classList.contains(otherClass) &&
+          document.documentElement.getAttribute('data-skin-adaptation') === targetMode.toLowerCase() &&
+          document.documentElement.getAttribute(visualAdaptationAttribute) === expectedVisualAdaptation &&
+          document.documentElement.getAttribute(toneAttribute) === toneForMode(targetMode) &&
           layer.style.backgroundImage === targetImage;
         if (alreadyApplied) {
           currentSignal = signal || currentSignal;
@@ -382,6 +394,10 @@ function buildInstallExpression(payload, waitForShell) {
         }
         document.documentElement.classList.remove('forest-scholar-light', 'forest-scholar-dark');
         document.documentElement.classList.add('forest-scholar-skin', targetClass);
+        document.documentElement.setAttribute('data-skin-adaptation', targetMode.toLowerCase());
+        document.documentElement.setAttribute(visualAdaptationAttribute, expectedVisualAdaptation);
+        if (toneForMode(targetMode)) document.documentElement.setAttribute(toneAttribute, toneForMode(targetMode));
+        else document.documentElement.removeAttribute(toneAttribute);
         layer.style.backgroundImage = targetImage;
         currentMode = targetMode;
         currentSignal = signal;
@@ -390,7 +406,18 @@ function buildInstallExpression(payload, waitForShell) {
       };
 
       const detectedAtInstall = detectMode();
-      const initialMode = payload.mode === 'Auto' ? (detectedAtInstall?.mode || 'Dark') : payload.mode;
+      let initialResolution;
+      try {
+        initialResolution = resolveSkinAdaptation(payload.mode, detectedAtInstall?.mode || null, payload.supportedAppearances);
+      } catch (error) {
+        style.remove();
+        layer.remove();
+        if (appRoot) appRoot.removeAttribute(rootAttribute);
+        document.documentElement.removeAttribute(visualAdaptationAttribute);
+        document.documentElement.removeAttribute(toneAttribute);
+        throw error;
+      }
+      const initialMode = initialResolution.mode;
       applyMode(initialMode, payload.mode === 'Auto' ? (detectedAtInstall?.signal || 'auto-fallback') : 'manual-initial');
 
       let disposed = false;
@@ -410,10 +437,11 @@ function buildInstallExpression(payload, waitForShell) {
           applyLayout(false);
         });
       };
-      const repairCounts = { cycles: 0, layer: 0, style: 0, rootClass: 0, backgroundImage: 0, appRoot: 0 };
+      const repairCounts = { cycles: 0, layer: 0, style: 0, rootClass: 0, visualAdaptation: 0, backgroundImage: 0, appRoot: 0 };
       let lastRepairAt = null;
       let lastRepairReason = null;
       let selfHealSuppressed = false;
+      let incompatibilityMessage = null;
 
       const refreshThemeObservation = () => {
         if (!themeObserver || disposed) return;
@@ -421,13 +449,35 @@ function buildInstallExpression(payload, waitForShell) {
         for (const root of signalRoots()) {
           themeObserver.observe(root, {
             attributes: true,
-            attributeFilter: ['class', 'data-theme', 'data-color-mode', 'data-appearance', 'style']
+            attributeFilter: ['class', 'data-theme', 'data-color-mode', 'data-appearance', visualAdaptationAttribute, toneAttribute, 'style']
           });
         }
       };
 
       const reconcile = (reason) => {
         if (disposed || !document.documentElement || !document.head || !document.body) return false;
+        const detected = payload.mode === 'Auto' ? detectMode() : null;
+        let targetMode;
+        try {
+          targetMode = resolveSkinAdaptation(
+            payload.mode,
+            detected?.mode || null,
+            payload.supportedAppearances
+          ).mode;
+          incompatibilityMessage = null;
+        } catch (error) {
+          incompatibilityMessage = String(error?.message || error);
+          style.remove();
+          layer.remove();
+          document.querySelectorAll('[' + rootAttribute + ']').forEach((node) => node.removeAttribute(rootAttribute));
+          document.documentElement.classList.remove('forest-scholar-skin', 'forest-scholar-light', 'forest-scholar-dark');
+          document.documentElement.removeAttribute('data-skin-adaptation');
+          document.documentElement.removeAttribute(visualAdaptationAttribute);
+          document.documentElement.removeAttribute(toneAttribute);
+          currentMode = null;
+          currentSignal = 'appearance-incompatible';
+          return false;
+        }
         const repaired = [];
         if (!style.isConnected) {
           document.head.appendChild(style);
@@ -452,18 +502,25 @@ function buildInstallExpression(payload, waitForShell) {
           refreshThemeObservation();
         }
 
-        const detected = payload.mode === 'Auto' ? detectMode() : null;
-        const targetMode = payload.mode === 'Auto' ? (detected?.mode || currentMode || initialMode) : payload.mode;
         const targetClass = 'forest-scholar-' + targetMode.toLowerCase();
         const otherClass = targetMode === 'Dark' ? 'forest-scholar-light' : 'forest-scholar-dark';
         const targetImage = 'url("' + payload.images[targetMode].dataUrl + '")';
         const rootClassMissing = currentMode === targetMode && (!document.documentElement.classList.contains('forest-scholar-skin') ||
-          !document.documentElement.classList.contains(targetClass) || document.documentElement.classList.contains(otherClass));
+          !document.documentElement.classList.contains(targetClass) || document.documentElement.classList.contains(otherClass) ||
+          document.documentElement.getAttribute('data-skin-adaptation') !== targetMode.toLowerCase());
+        const visualAdaptationMissing = currentMode === targetMode &&
+          document.documentElement.getAttribute(visualAdaptationAttribute) !== expectedVisualAdaptation;
+        const backgroundToneMissing = document.documentElement.getAttribute(toneAttribute) !== toneForMode(targetMode);
         const backgroundImageMissing = currentMode === targetMode && layer.style.backgroundImage !== targetImage;
         applyMode(targetMode, detected?.signal || (payload.mode === 'Auto' ? currentSignal : 'manual-override') || 'self-heal-fallback');
+        if (backgroundToneMissing) repaired.push('background-tone');
         if (rootClassMissing) {
           repairCounts.rootClass += 1;
           repaired.push('root-class');
+        }
+        if (visualAdaptationMissing) {
+          repairCounts.visualAdaptation += 1;
+          repaired.push('visual-adaptation');
         }
         if (backgroundImageMissing) {
           repairCounts.backgroundImage += 1;
@@ -541,6 +598,9 @@ function buildInstallExpression(payload, waitForShell) {
         document.getElementById(layerId)?.remove();
         document.querySelectorAll('[' + rootAttribute + ']').forEach((node) => node.removeAttribute(rootAttribute));
         document.documentElement?.classList.remove('forest-scholar-skin', 'forest-scholar-light', 'forest-scholar-dark');
+        document.documentElement?.removeAttribute('data-skin-adaptation');
+        document.documentElement?.removeAttribute(visualAdaptationAttribute);
+        document.documentElement?.removeAttribute(toneAttribute);
         delete window[stateKey];
         return true;
       };
@@ -551,6 +611,7 @@ function buildInstallExpression(payload, waitForShell) {
         lastRepairAt,
         lastRepairReason,
         selfHealSuppressed,
+        incompatibilityMessage,
         layout: lastLayout ? {
           mode: lastLayout.mode,
           viewportWidth: lastViewportWidth,
@@ -568,6 +629,7 @@ function buildInstallExpression(payload, waitForShell) {
         launchMode: payload.mode,
         theme: { ...payload.theme },
         getMode: () => currentMode,
+        getBackgroundTone: () => toneForMode(currentMode),
         getStatus,
         cleanup
       };
@@ -601,6 +663,7 @@ function buildInstallExpression(payload, waitForShell) {
 function buildVerifyInstallExpression() {
   return `(() => {
     const state = window[${JSON.stringify(STATE_KEY)}];
+    const visualAdaptationAttribute = ${JSON.stringify(VISUAL_ADAPTATION_ATTRIBUTE)};
     const activeMode = state?.getMode?.() || null;
     const expectedClass = activeMode === 'Light' ? 'forest-scholar-light' : activeMode === 'Dark' ? 'forest-scholar-dark' : null;
     const otherClass = activeMode === 'Light' ? 'forest-scholar-dark' : activeMode === 'Dark' ? 'forest-scholar-light' : null;
@@ -611,11 +674,16 @@ function buildVerifyInstallExpression() {
     const rect = layer ? layer.getBoundingClientRect() : null;
     const htmlHasSkin = Boolean(html?.classList.contains('forest-scholar-skin'));
     const modeClassCorrect = Boolean(expectedClass && html?.classList.contains(expectedClass) && !html?.classList.contains(otherClass));
+    const adaptationAttributeCorrect = Boolean(activeMode && html?.getAttribute('data-skin-adaptation') === activeMode.toLowerCase());
+    const visualAdaptationAttributeCorrect = Boolean(state?.theme?.visualAdaptation &&
+      html?.getAttribute(visualAdaptationAttribute) === state.theme.visualAdaptation);
+    const backgroundToneCorrect = Boolean(state &&
+      html?.getAttribute('data-skin-background-tone') === state.getBackgroundTone?.());
     const backgroundImagePresent = Boolean(computed && computed.backgroundImage !== 'none');
     const backgroundImageIsDataImage = Boolean(computed && /^url\\(["']?data:image\\//i.test(computed.backgroundImage));
     const backgroundLayerSized = Boolean(rect && rect.width > 0 && rect.height > 0);
-    const ready = Boolean(state && style?.isConnected && layer?.isConnected && htmlHasSkin && modeClassCorrect &&
-      backgroundImagePresent && backgroundImageIsDataImage && backgroundLayerSized);
+    const ready = Boolean(state && style?.isConnected && layer?.isConnected && htmlHasSkin && modeClassCorrect && adaptationAttributeCorrect &&
+      visualAdaptationAttributeCorrect && backgroundToneCorrect && backgroundImagePresent && backgroundImageIsDataImage && backgroundLayerSized);
     return {
       ready,
       statePresent: Boolean(state),
@@ -624,6 +692,9 @@ function buildVerifyInstallExpression() {
       htmlHasSkin,
       activeMode,
       modeClassCorrect,
+      adaptationAttributeCorrect,
+      visualAdaptationAttributeCorrect,
+      backgroundToneCorrect,
       backgroundImagePresent,
       backgroundImageIsDataImage,
       backgroundLayerSized,
@@ -642,6 +713,9 @@ function buildRemoveExpression() {
     document.getElementById(${JSON.stringify(LAYER_ID)})?.remove();
     document.querySelectorAll('[${ROOT_ATTRIBUTE}]').forEach((node) => node.removeAttribute(${JSON.stringify(ROOT_ATTRIBUTE)}));
     document.documentElement?.classList.remove('forest-scholar-skin', 'forest-scholar-light', 'forest-scholar-dark');
+    document.documentElement?.removeAttribute('data-skin-adaptation');
+    document.documentElement?.removeAttribute(${JSON.stringify(VISUAL_ADAPTATION_ATTRIBUTE)});
+    document.documentElement?.removeAttribute('data-skin-background-tone');
     delete window[stateKey];
     return true;
   })()`;
@@ -652,6 +726,8 @@ function buildVerifyRemovedExpression() {
     !document.getElementById(${JSON.stringify(STYLE_ID)}) &&
     !document.getElementById(${JSON.stringify(LAYER_ID)}) &&
     !document.documentElement?.classList.contains('forest-scholar-skin') &&
+    !document.documentElement?.hasAttribute('data-skin-adaptation') &&
+    !document.documentElement?.hasAttribute(${JSON.stringify(VISUAL_ADAPTATION_ATTRIBUTE)}) &&
     !window[${JSON.stringify(STATE_KEY)}]
   ))()`;
 }
@@ -712,60 +788,6 @@ function buildVisibilityOffExpression() {
       !document.getElementById('forest-scholar-visibility-test-style')
     );
   })()`;
-}
-
-async function loadPayload(root, themePackage, mode) {
-  const realRoot = await fs.realpath(root);
-  const theme = await loadThemePackage(themePackage);
-  const encodeImage = (background) => {
-    const base64 = background.bytes.toString("base64");
-    const dataUrl = `data:${background.mimeType};base64,${base64}`;
-    return {
-      dataUrl,
-      width: background.width,
-      height: background.height,
-      stats: {
-        sourceBytes: background.bytes.length,
-        width: background.width,
-        height: background.height,
-        base64Length: base64.length,
-        dataUrlLength: dataUrl.length,
-        mimeType: background.mimeType,
-        base64HasNewline: /[\r\n]/.test(base64),
-        dataUrlHasQuote: /["']/.test(dataUrl),
-        dataUrlHasBackslash: /\\/.test(dataUrl),
-        base64LengthModulo4: base64.length % 4,
-        base64HasPadding: base64.endsWith("="),
-      },
-    };
-  };
-  const [baseCss, compatibilityCss] = await Promise.all([
-    fs.readFile(path.join(realRoot, "styles", "base.css"), "utf8"),
-    fs.readFile(path.join(realRoot, "styles", "codex-compat.css"), "utf8"),
-  ]);
-  const light = encodeImage(theme.variants.light.background);
-  const dark = encodeImage(theme.variants.dark.background);
-  return {
-    theme: {
-      id: theme.manifest.id,
-      name: theme.manifest.name,
-      version: theme.manifest.version,
-    },
-    css: [baseCss, compatibilityCss, ...theme.styles.map((style) => style.content)].join("\n\n"),
-    images: {
-      Light: { dataUrl: light.dataUrl, width: light.width, height: light.height },
-      Dark: { dataUrl: dark.dataUrl, width: dark.width, height: dark.height },
-    },
-    layouts: {
-      Light: theme.variants.light.layoutConfig,
-      Dark: theme.variants.dark.layoutConfig,
-    },
-    imageStats: {
-      Light: light.stats,
-      Dark: dark.stats,
-    },
-    mode,
-  };
 }
 
 async function writeJsonAtomic(filePath, value) {
@@ -853,6 +875,8 @@ async function installIntoConfirmedTarget(confirmed, payload) {
         htmlHasSkin: Boolean(verification?.htmlHasSkin),
         activeMode: verification?.activeMode ?? null,
         modeClassCorrect: Boolean(verification?.modeClassCorrect),
+        adaptationAttributeCorrect: Boolean(verification?.adaptationAttributeCorrect),
+        visualAdaptationAttributeCorrect: Boolean(verification?.visualAdaptationAttributeCorrect),
         backgroundImagePresent: Boolean(verification?.backgroundImagePresent),
         backgroundImageIsDataImage: Boolean(verification?.backgroundImageIsDataImage),
         backgroundLayerSized: Boolean(verification?.backgroundLayerSized),
@@ -1001,7 +1025,7 @@ async function watchAndInject(options) {
   anchor.addEventListener("close", () => { anchorClosed = true; });
   anchor.addEventListener("error", () => { anchorClosed = true; });
 
-  const payload = await loadPayload(options.root, options.themePackage, options.mode);
+  const payload = await loadThemePayload(options.root, options.themePackage, options.mode);
   const runtimeDir = path.join(options.root, "runtime");
   const injectionStatePath = options.stateFile ?? path.join(runtimeDir, "injection-state.json");
   const readyPath = path.join(runtimeDir, "ready.json");

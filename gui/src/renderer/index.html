@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' skin-preview:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; connect-src 'none'">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Codex Skin Theme Manager</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell" aria-labelledby="app-title">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">CODEX SKIN</p>
+          <h1 id="app-title">Theme Manager</h1>
+        </div>
+        <button class="ghost-button" id="rescan-button" type="button">Rescan themes</button>
+      </header>
+
+      <div class="workspace">
+        <section class="panel theme-panel" aria-labelledby="themes-heading">
+          <div class="panel-heading">
+            <h2 id="themes-heading">Themes</h2>
+            <span id="theme-count" class="count-badge">0</span>
+          </div>
+          <div id="theme-list" class="theme-list" role="listbox" aria-label="Available themes"></div>
+          <div id="invalid-themes" class="invalid-themes" hidden></div>
+        </section>
+
+        <section class="panel preview-panel" aria-labelledby="preview-heading">
+          <div class="panel-heading preview-heading">
+            <div>
+              <h2 id="preview-heading">Preview</h2>
+              <p id="preview-subtitle" class="subtle">Select a theme to inspect it.</p>
+            </div>
+            <div class="segmented" role="group" aria-label="Skin adaptation preview">
+              <button id="preview-light" type="button" data-preview-variant="light">Light adaptation</button>
+              <button id="preview-dark" type="button" data-preview-variant="dark">Dark adaptation</button>
+            </div>
+          </div>
+          <div class="preview-canvas">
+            <img id="theme-preview" alt="" draggable="false">
+            <div id="preview-placeholder" class="preview-placeholder">No valid theme selected</div>
+          </div>
+          <div class="theme-details">
+            <div>
+              <div class="theme-title-line">
+                <h3 id="theme-name">—</h3>
+                <span id="theme-version" class="version-badge"></span>
+              </div>
+              <p id="theme-author" class="subtle"></p>
+              <p id="theme-adaptation" class="adaptation-label"></p>
+            </div>
+            <p id="theme-description" class="theme-description"></p>
+          </div>
+        </section>
+
+        <aside class="panel settings-panel" aria-labelledby="settings-heading">
+          <div class="panel-heading">
+            <h2 id="settings-heading">Skin adaptation</h2>
+          </div>
+          <fieldset id="skin-adaptation-options" class="skin-adaptation-options">
+            <legend class="sr-only">Skin adaptation policy</legend>
+            <label class="recommended-option">
+              <input type="radio" name="skin-adaptation" value="follow-codex">
+              <span><strong>Follow Codex <em>Recommended</em></strong><small>Match the skin to Codex's current appearance.</small></span>
+            </label>
+            <details id="advanced-adaptation" class="advanced-adaptation">
+              <summary>Advanced</summary>
+              <div class="advanced-options">
+                <label><input type="radio" name="skin-adaptation" value="force-light"><span><strong>Force light skin</strong><small>Use the theme's light adaptation.</small></span></label>
+                <label><input type="radio" name="skin-adaptation" value="force-dark"><span><strong>Force dark skin</strong><small>Use the theme's dark adaptation.</small></span></label>
+              </div>
+              <p>These options change skin resources only. They do not change Codex's appearance.</p>
+            </details>
+          </fieldset>
+
+          <div class="detected-appearance">
+            <span>Codex appearance</span>
+            <strong>Not detected</strong>
+          </div>
+
+          <div id="compatibility-warning" class="compatibility-warning" hidden></div>
+          <div id="force-warning" class="compatibility-warning" hidden>
+            Forced skin adaptation may not match Codex's current appearance.
+          </div>
+
+          <div id="pending-notice" class="pending-notice" hidden>
+            <span class="status-dot warning"></span>
+            Changes have not been applied.
+          </div>
+
+          <div class="actions">
+            <button class="primary-button" id="apply-button" type="button">Apply changes</button>
+            <button class="secondary-button" id="launch-button" type="button">Launch Codex</button>
+            <button class="danger-button" id="restore-button" type="button">Restore Codex</button>
+          </div>
+          <p class="action-note">Launch uses the applied theme. Restore runs the existing safe restore workflow.</p>
+        </aside>
+      </div>
+
+      <footer id="status-bar" class="status-bar" aria-live="polite">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status-message">Loading Theme Packages…</span>
+        <span id="active-summary" class="active-summary"></span>
+      </footer>
+    </main>
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>

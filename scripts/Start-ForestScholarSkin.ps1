@@ -342,10 +342,22 @@ try {
 
     $failureStage = 'codex-registration-check'
     $registration = Get-FssCodexRegistration
+    Set-FssHistorySessionFields -Fields ([ordered]@{
+            expectedExecutable = $registration.ExpectedExecutable
+            packageFullName = $registration.PackageFullName
+            packageFamilyName = $registration.PackageFamilyName
+            appUserModelId = $registration.AppUserModelId
+        })
 
     $failureStage = 'existing-codex-check'
-    $runningCodex = @(Get-Process -Name ChatGPT -ErrorAction SilentlyContinue)
-    if ($runningCodex.Count -gt 0) {
+    $existingCodex = Get-FssExistingCodexObservation -ExpectedExecutable $registration.ExpectedExecutable
+    Write-FssHistoryEvent -Event 'existing-codex-check' -Details ([ordered]@{
+            detectedCount = $existingCodex.DetectedCount
+            matchingExpectedExecutableCount = $existingCodex.MatchingExpectedExecutableCount
+            processIds = @($existingCodex.ProcessIds)
+            launchAllowed = [bool]$existingCodex.LaunchAllowed
+        })
+    if (-not $existingCodex.LaunchAllowed) {
         throw 'Codex is already running. Close every Codex window, wait a few seconds, then run this launcher again. This script will not close the current app automatically.'
     }
 
@@ -373,47 +385,163 @@ try {
         })
 
     $failureStage = 'codex-activation'
+    $activationRequestedAt = [DateTime]::UtcNow
+    Write-FssHistoryEvent -Event 'codex-launch-request' -At $activationRequestedAt.ToString('o') -Details ([ordered]@{
+            appUserModelId = $registration.AppUserModelId
+            remoteDebuggingAddress = '127.0.0.1'
+            remoteDebuggingPort = $port
+        })
     $appProcessId = Start-FssCodex -Registration $registration -Arguments @(
         '--remote-debugging-address=127.0.0.1',
         "--remote-debugging-port=$port"
     )
+    $activationReturnedAt = [DateTime]::UtcNow
+    Write-FssHistoryEvent -Event 'codex-activation-returned' -At $activationReturnedAt.ToString('o') -Details ([ordered]@{
+            appProcessId = $appProcessId
+            activationDurationMilliseconds = [math]::Round(($activationReturnedAt - $activationRequestedAt).TotalMilliseconds, 3)
+        })
     Write-FssHistoryEvent -Event 'codex-process-start' -Details ([ordered]@{
             appProcessId = $appProcessId
         })
+    Set-FssHistorySessionFields -Fields ([ordered]@{
+            codexLaunchRequestedAt = $activationRequestedAt.ToString('o')
+            codexActivationReturnedAt = $activationReturnedAt.ToString('o')
+            appProcessId = $appProcessId
+        })
 
-    $failureStage = 'codex-process-identity-verification'
-    $identityDeadline = [DateTime]::UtcNow.AddSeconds(5)
-    while ($null -eq $appIdentity -and [DateTime]::UtcNow -lt $identityDeadline) {
-        $candidate = Get-FssProcessIdentity -ProcessId $appProcessId
-        if ($null -ne $candidate -and $candidate.Path -and
-            (Test-FssPathEqual -Left $candidate.Path -Right $registration.ExpectedExecutable)) {
-            $appIdentity = $candidate
-            break
-        }
-        Start-Sleep -Milliseconds 100
+    $failureStage = 'codex-process-and-cdp-readiness'
+    $readiness = Wait-FssCodexCdpReadiness `
+        -ProcessId $appProcessId `
+        -Port $port `
+        -ExpectedExecutable $registration.ExpectedExecutable `
+        -ProcessTimeoutMilliseconds 5000 `
+        -CdpTimeoutMilliseconds 45000 `
+        -ProcessPollMilliseconds 100 `
+        -CdpPollMilliseconds 350
+    $appIdentity = $readiness.ProcessIdentity
+    foreach ($transition in @($readiness.Transitions)) {
+        Write-FssHistoryEvent -Event 'readiness-transition' -At "$($transition.At)" -Details ([ordered]@{
+                stage = "$($transition.Stage)"
+            })
     }
-    if ($null -eq $appIdentity) {
-        throw 'The activated Codex process identity could not be verified.'
+    foreach ($transition in @($readiness.LifecycleTransitions)) {
+        $observation = $transition.Observation
+        $processes = @($observation.processes | ForEach-Object {
+                [ordered]@{
+                    processId = [int]$_.processId
+                    parentProcessId = $_.parentProcessId
+                    executableName = $_.executableName
+                    startedAt = $_.startedAt
+                    isActivationProcess = [bool]$_.isActivationProcess
+                    pathAvailable = [bool]$_.pathAvailable
+                    pathMatchesExpected = $_.pathMatchesExpected
+                    commandLineAvailable = [bool]$_.commandLineAvailable
+                    remoteDebuggingAddressPresent = $_.remoteDebuggingAddressPresent
+                    remoteDebuggingPortPresent = $_.remoteDebuggingPortPresent
+                    remoteDebuggingPortMatches = $_.remoteDebuggingPortMatches
+                    parentIsObservedCodex = [bool]$_.parentIsObservedCodex
+                }
+            })
+        Write-FssHistoryEvent -Event 'codex-process-lifecycle' -At "$($transition.At)" -Details ([ordered]@{
+                sampleNumber = [int]$transition.SampleNumber
+                processQuerySucceeded = [bool]$observation.processQuerySucceeded
+                processQueryFailureType = $observation.processQueryFailureType
+                listenerQuerySucceeded = [bool]$observation.listenerQuerySucceeded
+                listenerQueryFailureType = $observation.listenerQueryFailureType
+                activationProcessId = [int]$observation.activationProcessId
+                activationProcessPresent = [bool]$observation.activationProcessPresent
+                activationProcessHasSelectedPort = [bool]$observation.activationProcessHasSelectedPort
+                addedProcessIds = @($transition.AddedProcessIds)
+                removedProcessIds = @($transition.RemovedProcessIds)
+                observedProcessIds = @($observation.observedProcessIds)
+                matchingExpectedPathProcessIds = @($observation.matchingExpectedPathProcessIds)
+                portBearingProcessIds = @($observation.portBearingProcessIds)
+                listenerPids = @($observation.listenerPids)
+                processes = $processes
+            })
     }
+    $lastLifecycleObservation = $readiness.LifecycleLastObservation
+    $readinessSummary = [ordered]@{
+        succeeded = [bool]$readiness.Succeeded
+        processAttempts = $readiness.ProcessAttempts
+        readinessAttempts = $readiness.ReadinessAttempts
+        processDetectedAt = $readiness.ProcessDetectedAt
+        listenerFirstSeenAt = $readiness.ListenerFirstSeenAt
+        httpFirstSuccessAt = $readiness.HttpFirstSuccessAt
+        browserWebSocketFirstSeenAt = $readiness.BrowserWebSocketFirstSeenAt
+        browserIdentityValidatedAt = $readiness.BrowserIdentityValidatedAt
+        lastObservedStage = $readiness.LastObservedStage
+        listenerPids = @($readiness.ListenerPids)
+        httpFailureType = $readiness.HttpFailureType
+        processDetectionDurationMilliseconds = $readiness.ProcessDetectionDurationMilliseconds
+        cdpReadinessDurationMilliseconds = $readiness.CdpReadinessDurationMilliseconds
+        listenerSeenAfterProcessMilliseconds = $readiness.ListenerSeenAfterProcessMilliseconds
+        httpReadyAfterProcessMilliseconds = $readiness.HttpReadyAfterProcessMilliseconds
+        browserIdentityAfterProcessMilliseconds = $readiness.BrowserIdentityAfterProcessMilliseconds
+        totalDurationMilliseconds = $readiness.TotalDurationMilliseconds
+        lifecycleSampleCount = [int]$readiness.LifecycleSampleCount
+        lifecycleQueryFailureCount = [int]$readiness.LifecycleQueryFailureCount
+        lifecycleTransitionCount = @($readiness.LifecycleTransitions).Count
+        lifecycleLastObservedAt = $readiness.LifecycleLastObservedAt
+        activationProcessPresentAtEnd = if ($null -ne $lastLifecycleObservation) { [bool]$lastLifecycleObservation.activationProcessPresent } else { $null }
+        activationProcessHasSelectedPortAtEnd = if ($null -ne $lastLifecycleObservation) { [bool]$lastLifecycleObservation.activationProcessHasSelectedPort } else { $null }
+        observedProcessIdsAtEnd = if ($null -ne $lastLifecycleObservation) { @($lastLifecycleObservation.observedProcessIds) } else { @() }
+        matchingExpectedPathProcessIdsAtEnd = if ($null -ne $lastLifecycleObservation) { @($lastLifecycleObservation.matchingExpectedPathProcessIds) } else { @() }
+        portBearingProcessIdsAtEnd = if ($null -ne $lastLifecycleObservation) { @($lastLifecycleObservation.portBearingProcessIds) } else { @() }
+        listenerPidsAtEnd = if ($null -ne $lastLifecycleObservation) { @($lastLifecycleObservation.listenerPids) } else { @() }
+    }
+    Set-FssHistorySessionFields -Fields ([ordered]@{ readiness = $readinessSummary })
+    Write-FssHistoryEvent -Event 'cdp-readiness-summary' -At "$($readiness.FinishedAt)" -Details $readinessSummary
+    if ($null -ne $appIdentity) {
+        $launchMetadata = Get-FssProcessLaunchMetadata -ProcessId $appIdentity.ProcessId -Port $port
+        $processPredatesLaunchRequest = $null
+        try {
+            $processStartedAtUtc = [DateTime]::Parse(
+                "$($appIdentity.StartedAt)",
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind
+            ).ToUniversalTime()
+            $processPredatesLaunchRequest = $processStartedAtUtc -lt $activationRequestedAt.AddSeconds(-1)
+        } catch {}
+        Write-FssHistoryEvent -Event 'codex-launch-metadata' -Details ([ordered]@{
+                processId = $appIdentity.ProcessId
+                processStartedAt = $appIdentity.StartedAt
+                processPredatesLaunchRequest = $processPredatesLaunchRequest
+                processPathMatchesExpected = (Test-FssPathEqual -Left $appIdentity.Path -Right $registration.ExpectedExecutable)
+                packageFullName = $registration.PackageFullName
+                commandLineQueried = [bool]$launchMetadata.queried
+                commandLineAvailable = [bool]$launchMetadata.commandLineAvailable
+                parentProcessId = $launchMetadata.parentProcessId
+                remoteDebuggingAddressPresent = $launchMetadata.remoteDebuggingAddressPresent
+                remoteDebuggingPortPresent = $launchMetadata.remoteDebuggingPortPresent
+                remoteDebuggingPortMatches = $launchMetadata.remoteDebuggingPortMatches
+            })
+        Set-FssHistorySessionFields -Fields ([ordered]@{
+                launchMetadata = [ordered]@{
+                    commandLineQueried = [bool]$launchMetadata.queried
+                    commandLineAvailable = [bool]$launchMetadata.commandLineAvailable
+                    parentProcessId = $launchMetadata.parentProcessId
+                    processPredatesLaunchRequest = $processPredatesLaunchRequest
+                    remoteDebuggingAddressPresent = $launchMetadata.remoteDebuggingAddressPresent
+                    remoteDebuggingPortPresent = $launchMetadata.remoteDebuggingPortPresent
+                    remoteDebuggingPortMatches = $launchMetadata.remoteDebuggingPortMatches
+                }
+            })
+    }
+    if (-not $readiness.Succeeded) {
+        $failureStage = "$($readiness.FailureStage)"
+        throw "Codex CDP startup failed at $failureStage. Last observation: $($readiness.FailureReason)."
+    }
+    $cdpIdentity = $readiness.CdpIdentity
     Set-FssHistorySessionFields -Fields ([ordered]@{
             appProcessId = $appIdentity.ProcessId
             appStartedAt = $appIdentity.StartedAt
         })
-
-    $failureStage = 'cdp-port-readiness'
-    $deadline = [DateTime]::UtcNow.AddSeconds(45)
-    $cdpIdentity = $null
-    while ($null -eq $cdpIdentity -and [DateTime]::UtcNow -lt $deadline) {
-        Start-Sleep -Milliseconds 350
-        $cdpIdentity = Get-FssCdpIdentity -Port $port -ExpectedExecutable $registration.ExpectedExecutable
-    }
-    if ($null -eq $cdpIdentity) {
-        throw "Codex did not expose a verified 127.0.0.1 CDP endpoint on high port $port within 45 seconds."
-    }
-    Write-FssHistoryEvent -Event 'cdp-port-ready' -Details ([ordered]@{
+    Write-FssHistoryEvent -Event 'cdp-port-ready' -At "$($readiness.BrowserIdentityValidatedAt)" -Details ([ordered]@{
             port = $port
             bindAddress = '127.0.0.1'
             browserId = $cdpIdentity.BrowserId
+            readinessAttempts = $readiness.ReadinessAttempts
         })
     Set-FssHistorySessionFields -Fields ([ordered]@{
             browserId = $cdpIdentity.BrowserId

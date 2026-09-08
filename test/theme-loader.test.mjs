@@ -23,6 +23,16 @@ test("loads the official Forest Scholar theme package", async () => {
   );
   assert.equal(theme.styles.length, 1);
   assert.equal(theme.variants.dark.layoutConfig.mode, "focus-soft");
+  assert.deepEqual(theme.supportedAppearances, ["light", "dark"]);
+});
+
+test("loads the official Phainon schemaVersion 1 theme without migration", async () => {
+  const theme = await loadThemePackage(path.join(projectRoot, "themes", "phainon"));
+  assert.equal(theme.manifest.schemaVersion, 1);
+  assert.equal(theme.manifest.id, "phainon");
+  assert.deepEqual(theme.supportedAppearances, ["light", "dark"]);
+  assert.ok(theme.backgrounds.light);
+  assert.ok(theme.backgrounds.dark);
 });
 
 async function makePackage(mutator) {
@@ -75,8 +85,83 @@ test("rejects a package without theme.json", async () => {
 });
 
 test("rejects an unsupported schemaVersion", async () => {
-  await withPackage((root) => editManifest(root, (m) => { m.schemaVersion = 2; }), async (root) => {
+  await withPackage((root) => editManifest(root, (m) => { m.schemaVersion = 99; }), async (root) => {
     await assert.rejects(loadThemePackage(root), /Unsupported theme schemaVersion/);
+  });
+});
+
+function convertToV2(manifest, { supported = ["light", "dark"], defaultBackground, overrides } = {}) {
+  manifest.schemaVersion = 2;
+  delete manifest.variants;
+  delete manifest.capabilities;
+  manifest.compatibility = { codexAppearances: supported };
+  manifest.background = {};
+  if (defaultBackground) manifest.background.default = defaultBackground;
+  if (overrides) manifest.background.overrides = overrides;
+}
+
+test("loads a schemaVersion 2 dual-background theme", async () => {
+  await withPackage((root) => editManifest(root, (manifest) => convertToV2(manifest, {
+    overrides: { light: "assets/light.png", dark: "assets/dark.png" },
+  })), async (root) => {
+    const theme = await loadThemePackage(root);
+    assert.equal(theme.manifest.schemaVersion, 2);
+    assert.deepEqual(theme.supportedAppearances, ["light", "dark"]);
+    assert.equal(theme.backgrounds.light.relativePath, "assets/light.png");
+    assert.equal(theme.backgrounds.dark.relativePath, "assets/dark.png");
+    assert.notStrictEqual(theme.backgrounds.light, theme.backgrounds.dark);
+  });
+});
+
+test("resolves one shared schemaVersion 2 background for both adaptations", async () => {
+  await withPackage((root) => editManifest(root, (manifest) => convertToV2(manifest, {
+    defaultBackground: "assets/light.png",
+  })), async (root) => {
+    const theme = await loadThemePackage(root);
+    assert.strictEqual(theme.backgrounds.light, theme.backgrounds.dark);
+    assert.strictEqual(theme.variants.light.background, theme.variants.dark.background);
+  });
+});
+
+test("loads a schemaVersion 2 dark-only theme", async () => {
+  await withPackage((root) => editManifest(root, (manifest) => convertToV2(manifest, {
+    supported: ["dark"],
+    defaultBackground: "assets/dark.png",
+  })), async (root) => {
+    const theme = await loadThemePackage(root);
+    assert.deepEqual(theme.supportedAppearances, ["dark"]);
+    assert.equal(theme.backgrounds.light, undefined);
+    assert.equal(theme.variants.light, undefined);
+    assert.equal(theme.backgrounds.dark.relativePath, "assets/dark.png");
+  });
+});
+
+test("prefers a light override over the shared default background", async () => {
+  await withPackage((root) => editManifest(root, (manifest) => convertToV2(manifest, {
+    defaultBackground: "assets/dark.png",
+    overrides: { light: "assets/light.png" },
+  })), async (root) => {
+    const theme = await loadThemePackage(root);
+    assert.equal(theme.backgrounds.light.relativePath, "assets/light.png");
+    assert.equal(theme.backgrounds.dark.relativePath, "assets/dark.png");
+  });
+});
+
+test("rejects a schemaVersion 2 supported appearance without a resolvable background", async () => {
+  await withPackage((root) => editManifest(root, (manifest) => convertToV2(manifest, {
+    overrides: { dark: "assets/dark.png" },
+  })), async (root) => {
+    await assert.rejects(loadThemePackage(root), /No background resolves.*light/);
+  });
+});
+
+test("rejects a schemaVersion 2 override for an unsupported appearance", async () => {
+  await withPackage((root) => editManifest(root, (manifest) => convertToV2(manifest, {
+    supported: ["dark"],
+    defaultBackground: "assets/dark.png",
+    overrides: { light: "assets/light.png" },
+  })), async (root) => {
+    await assert.rejects(loadThemePackage(root), /declared for an unsupported Codex appearance/);
   });
 });
 

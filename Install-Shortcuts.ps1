@@ -13,8 +13,8 @@ if (-not $desktop -or -not (Test-Path -LiteralPath $desktop -PathType Container)
 $definitions = @(
     [pscustomobject]@{
         Name = 'Forest Scholar'
-        Launcher = 'Start-ForestScholar.cmd'
-        Description = 'Start Codex with Forest Scholar and follow its current appearance'
+        Launcher = 'Start-ThemeManager.cmd'
+        Description = 'Open Codex Skin Theme Manager to select, apply and launch a theme'
     },
     [pscustomobject]@{
         Name = 'Restore Forest Scholar'

@@ -2,92 +2,129 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://codex-skin.local/schemas/theme.schema.json",
   "title": "Codex Skin theme package manifest",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schemaVersion",
-    "id",
-    "name",
-    "version",
-    "author",
-    "description",
-    "variants",
-    "layout",
-    "capabilities"
-  ],
-  "properties": {
-    "$schema": { "type": "string" },
-    "schemaVersion": { "const": 1 },
-    "id": {
-      "type": "string",
-      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-      "minLength": 1,
-      "maxLength": 80
-    },
-    "name": { "type": "string", "minLength": 1, "maxLength": 120 },
-    "version": {
-      "type": "string",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
-      "maxLength": 80
-    },
-    "author": { "type": "string", "minLength": 1, "maxLength": 120 },
-    "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
-    "variants": {
+  "oneOf": [
+    {
+      "title": "Theme Package schemaVersion 1",
       "type": "object",
-      "additionalProperties": false,
-      "required": ["light", "dark"],
-      "properties": {
-        "light": { "$ref": "#/$defs/variant" },
-        "dark": { "$ref": "#/$defs/variant" }
-      }
-    },
-    "layout": {
       "allOf": [
-        { "$ref": "#/$defs/packagePath" },
-        { "pattern": "\\.json$" }
-      ]
+        { "$ref": "#/$defs/common" },
+        { "$ref": "#/$defs/version1" }
+      ],
+      "unevaluatedProperties": false
     },
-    "styles": {
-      "type": "array",
-      "maxItems": 8,
-      "uniqueItems": true,
-      "items": {
-        "allOf": [
-          { "$ref": "#/$defs/packagePath" },
-          { "pattern": "\\.css$" }
-        ]
+    {
+      "title": "Theme Package schemaVersion 2",
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        { "$ref": "#/$defs/version2" }
+      ],
+      "unevaluatedProperties": false
+    }
+  ],
+  "$defs": {
+    "common": {
+      "type": "object",
+      "required": ["schemaVersion", "id", "name", "version", "author", "description", "layout"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "schemaVersion": { "type": "integer" },
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "minLength": 1, "maxLength": 80 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+          "maxLength": 80
+        },
+        "author": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "layout": { "allOf": [{ "$ref": "#/$defs/packagePath" }, { "type": "string", "pattern": "\\.json$" }] },
+        "styles": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "allOf": [{ "$ref": "#/$defs/packagePath" }, { "type": "string", "pattern": "\\.css$" }] }
+        }
       }
     },
-    "capabilities": {
+    "version1": {
+      "type": "object",
+      "required": ["schemaVersion", "variants", "capabilities"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "variants": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["light", "dark"],
+          "properties": {
+            "light": { "$ref": "#/$defs/version1Variant" },
+            "dark": { "$ref": "#/$defs/version1Variant" }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["light", "dark", "autoAppearance"],
+          "properties": {
+            "light": { "const": true },
+            "dark": { "const": true },
+            "autoAppearance": { "const": true }
+          }
+        }
+      }
+    },
+    "version2": {
+      "type": "object",
+      "required": ["schemaVersion", "compatibility", "background"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["codexAppearances"],
+          "properties": {
+            "codexAppearances": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": { "enum": ["light", "dark"] }
+            }
+          }
+        },
+        "background": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "default": { "$ref": "#/$defs/pngPath" },
+            "overrides": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "light": { "$ref": "#/$defs/pngPath" },
+                "dark": { "$ref": "#/$defs/pngPath" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "version1Variant": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["light", "dark", "autoAppearance"],
-      "properties": {
-        "light": { "type": "boolean" },
-        "dark": { "type": "boolean" },
-        "autoAppearance": { "type": "boolean" }
-      }
-    }
-  },
-  "$defs": {
+      "required": ["background"],
+      "properties": { "background": { "$ref": "#/$defs/pngPath" } }
+    },
+    "pngPath": {
+      "allOf": [{ "$ref": "#/$defs/packagePath" }, { "type": "string", "pattern": "\\.png$" }]
+    },
     "packagePath": {
       "type": "string",
       "minLength": 1,
       "maxLength": 500,
       "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\u0000]+$"
-    },
-    "variant": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["background"],
-      "properties": {
-        "background": {
-          "allOf": [
-            { "$ref": "#/$defs/packagePath" },
-            { "pattern": "\\.png$" }
-          ]
-        }
-      }
     }
   }
 }

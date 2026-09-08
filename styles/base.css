@@ -1,4 +1,6 @@
 html.forest-scholar-skin {
+  --codex-skin-accent: AccentColor;
+  --codex-skin-foreground: CanvasText;
   --codex-skin-surface: Canvas;
   --codex-skin-main-wash: transparent;
   --codex-skin-sidebar-surface: Canvas;
@@ -7,7 +9,68 @@ html.forest-scholar-skin {
   --codex-skin-work-gradient-strong: Canvas;
   --codex-skin-work-gradient-middle: transparent;
   --codex-skin-work-gradient-clear: transparent;
+  --codex-skin-background-scrim: transparent;
   background: var(--codex-skin-surface) !important;
+}
+
+html.forest-scholar-skin:where([data-skin-adaptation="light"]) {
+  --codex-skin-accent: #52687a;
+  --codex-skin-foreground: #202428;
+  --codex-skin-surface: #f4f4f2;
+  --codex-skin-main-wash: rgba(250, 250, 248, 0.16);
+  --codex-skin-sidebar-surface: rgba(248, 248, 246, 0.90);
+  --codex-skin-chrome-surface: rgba(248, 248, 246, 0.84);
+  --codex-skin-main-content-surface: rgba(250, 250, 248, 0.10);
+  --codex-skin-chrome-track-surface: rgba(82, 104, 122, 0.06);
+  --codex-skin-chrome-selected-surface: rgba(32, 36, 40, 0.08);
+  --codex-skin-foreground-muted: rgba(32, 36, 40, 0.68);
+  --codex-skin-work-gradient-strong: rgba(248, 248, 246, 0.60);
+  --codex-skin-work-gradient-middle: rgba(248, 248, 246, 0.24);
+  --codex-skin-work-gradient-clear: rgba(248, 248, 246, 0);
+}
+
+html.forest-scholar-skin:where([data-skin-adaptation="dark"]) {
+  --codex-skin-accent: #93afc4;
+  --codex-skin-foreground: #eef1f3;
+  --codex-skin-surface: #17191c;
+  --codex-skin-main-wash: rgba(18, 20, 24, 0.18);
+  --codex-skin-sidebar-surface: rgba(20, 22, 26, 0.90);
+  --codex-skin-chrome-surface: rgba(20, 22, 26, 0.84);
+  --codex-skin-main-content-surface: rgba(18, 20, 24, 0.12);
+  --codex-skin-chrome-track-surface: rgba(147, 175, 196, 0.07);
+  --codex-skin-chrome-selected-surface: rgba(238, 241, 243, 0.12);
+  --codex-skin-foreground-muted: rgba(238, 241, 243, 0.72);
+  --codex-skin-work-gradient-strong: rgba(20, 22, 26, 0.60);
+  --codex-skin-work-gradient-middle: rgba(20, 22, 26, 0.24);
+  --codex-skin-work-gradient-clear: rgba(20, 22, 26, 0);
+}
+
+html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="light"]) {
+  --codex-skin-topbar-surface: rgba(248, 248, 246, 0.94);
+  --codex-skin-background-scrim: rgba(255, 255, 255, 0.08);
+}
+
+html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="dark"]) {
+  --codex-skin-topbar-surface: rgba(20, 22, 26, 0.94);
+  --codex-skin-background-scrim: rgba(0, 0, 0, 0.12);
+}
+
+/* Tone is analyzed once in the payload. Medium/unknown keeps base defaults.
+   Only Universal Dark surfaces vary; Light and Custom themes stay unchanged. */
+html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="dark"][data-skin-background-tone="light"]) {
+  --codex-skin-background-scrim: rgba(0, 0, 0, 0.03);
+  --codex-skin-main-wash: rgba(18, 20, 24, 0.18);
+  --codex-skin-chrome-surface: rgba(20, 22, 26, 0.72);
+  --codex-skin-sidebar-surface: rgba(20, 22, 26, 0.80);
+  --codex-skin-main-content-surface: rgba(18, 20, 24, 0.66);
+}
+
+html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="dark"][data-skin-background-tone="dark"]) {
+  --codex-skin-background-scrim: rgba(0, 0, 0, 0.06);
+  --codex-skin-main-wash: rgba(18, 20, 24, 0.14);
+  --codex-skin-chrome-surface: rgba(20, 22, 26, 0.80);
+  --codex-skin-sidebar-surface: rgba(20, 22, 26, 0.86);
+  --codex-skin-main-content-surface: rgba(18, 20, 24, 0.10);
 }
 
 html.forest-scholar-skin body {
@@ -32,4 +95,12 @@ html.forest-scholar-skin [data-forest-scholar-app-root="true"] {
   user-select: none !important;
   background-color: var(--codex-skin-surface);
   background-repeat: no-repeat;
+}
+
+#forest-scholar-skin-background::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--codex-skin-background-scrim, transparent);
 }
