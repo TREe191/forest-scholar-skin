@@ -3,6 +3,7 @@ import path from "node:path";
 import { calculateBackgroundLayout } from "./layout-engine.mjs";
 import { resolveSkinAdaptation } from "./skin-adaptation.mjs";
 import { loadThemePayload } from "./theme-payload.mjs";
+import { waitForRenderer } from "./renderer-readiness.mjs";
 
 const STYLE_ID = "forest-scholar-skin-style";
 const LAYER_ID = "forest-scholar-skin-background";
@@ -808,9 +809,13 @@ async function readJson(filePath) {
   catch (error) { if (error?.code === "ENOENT") return null; throw error; }
 }
 
-async function confirmRendererTarget(target) {
-  const session = await new CdpSession(target.wsUrl).open();
+async function confirmRendererTarget(target, signal = null) {
+  const session = new CdpSession(target.wsUrl);
+  const abort = () => session.close();
+  signal?.addEventListener('abort', abort, { once: true });
   try {
+    if (signal?.aborted) throw new Error('Renderer readiness expired.');
+    await session.open();
     for (let attempt = 1; attempt <= RENDERER_PROBE_COUNT; attempt += 1) {
       const probe = await probeCodexRenderer(session);
       const accepted = rendererIsCodex(probe);
@@ -825,12 +830,19 @@ async function confirmRendererTarget(target) {
         accepted,
       });
       if (!accepted) { session.close(); return null; }
+      if (signal) diagnosticOnce('renderer-wait-semantic-pass', {
+        at: new Date().toISOString(), targetIndex: target.diagnosticIndex,
+        confirmationAttempt: attempt, requiredConfirmations: RENDERER_PROBE_COUNT,
+      });
       if (attempt < RENDERER_PROBE_COUNT) await sleep(RENDERER_PROBE_INTERVAL_MS);
     }
+    if (signal?.aborted) throw new Error('Renderer readiness expired.');
     return { target, session };
   } catch (error) {
     session.close();
     throw error;
+  } finally {
+    signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -1034,6 +1046,26 @@ async function watchAndInject(options) {
   let readyWritten = false;
 
   try {
+    const confirmed = await waitForRenderer({
+      discover: async () => {
+        if (anchorClosed) throw new Error('Browser identity anchor closed.');
+        try { await fs.access(stopPath); throw new Error('Renderer startup stopped.'); }
+        catch (error) { if (error?.code !== 'ENOENT') throw error; }
+        await validateBrowserIdentity(options.port, options.browserId);
+        return listPageTargets(options.port);
+      },
+      confirm: async (target, signal) => {
+        try { return await confirmRendererTarget(target, signal); }
+        catch (error) {
+          if (signal.aborted) throw error;
+          diagnosticOnce('target-error', { targetIndex: target.diagnosticIndex, stage: 'websocket-or-probe', failed: true });
+          return null;
+        }
+      },
+      log: diagnosticOnce,
+    });
+    const applied = await installIntoConfirmedTarget(confirmed, payload);
+    attached.set(confirmed.target.id, applied);
     while (!anchorClosed) {
       try {
         await fs.access(stopPath);

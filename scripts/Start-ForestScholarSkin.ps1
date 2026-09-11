@@ -241,6 +241,11 @@ function Update-FssHistoryFromInjectorDiagnostics {
         try {
             $event = $match.Groups['event'].Value
             $details = $match.Groups['json'].Value | ConvertFrom-Json
+            if ($event -like 'renderer-wait-*') {
+                $waitDetails = [ordered]@{}
+                foreach ($property in $details.PSObject.Properties) { $waitDetails[$property.Name] = $property.Value }
+                Write-FssHistoryEvent -Event $event -At "$($details.at)" -Details $waitDetails
+            }
             switch ($event) {
                 'json-list' {
                     $acceptedTargets = @($details.targets | Where-Object { [bool]$_.accepted })
@@ -646,7 +651,9 @@ try {
         })
 
     $failureStage = 'renderer-readiness'
-    $readyDeadline = [DateTime]::UtcNow.AddSeconds(35)
+    # Renderer startup: 15s initial target + 60s semantic readiness, with
+    # additional allowance for payload preparation and existing DOM verification.
+    $readyDeadline = [DateTime]::UtcNow.AddSeconds(120)
     while (-not (Test-Path -LiteralPath $readyPath -PathType Leaf) -and [DateTime]::UtcNow -lt $readyDeadline) {
         Update-FssHistoryFromInjectorDiagnostics
         if ($injectorProcess.HasExited) {
@@ -655,7 +662,7 @@ try {
         Start-Sleep -Milliseconds 150
     }
     if (-not (Test-Path -LiteralPath $readyPath -PathType Leaf)) {
-        throw "The injector did not confirm a Codex renderer within 35 seconds. See $stderrPath"
+        throw "The injector did not produce verified renderer readiness within the 120-second outer guard. See renderer-wait-stage / renderer-wait-failed in $stderrPath"
     }
     Update-FssHistoryFromInjectorDiagnostics
 

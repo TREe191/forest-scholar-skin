@@ -5,8 +5,51 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { classifyBrightness, sampleBackgroundTone, analyzePngTone } from '../scripts/background-tone.mjs';
 import { loadThemePayload } from '../scripts/theme-payload.mjs';
+import { resolveAdaptationProfile } from '../scripts/adaptation-profile.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+test('profile resolver is pure, versioned and neutral on unavailable analysis', () => {
+  for (const appearance of ['light','dark']) for (const tone of ['light','medium','dark']) {
+    const analysis=Object.freeze({tone,brightness:0.5,samples:64,fallback:null});
+    assert.deepEqual(resolveAdaptationProfile(analysis,appearance), {
+      schemaVersion:1,strategy:'global-tone-v1',appearance,preset:`${appearance}-${tone}`,tone
+    });
+  }
+  for (const analysis of [null,{}, {tone:'unknown'}, {tone:'dark',fallback:'unsupported'}]) {
+    assert.equal(resolveAdaptationProfile(analysis,'light').tone,'medium');
+  }
+  assert.throws(()=>resolveAdaptationProfile({tone:'dark'},'auto'));
+});
+
+test('Universal dark-image payload exposes profiles, Custom does not participate', async () => {
+  const payload=await loadThemePayload(root,root+'themes/universal-dark-test','Auto');
+  assert.equal(payload.adaptationProfiles.Light.preset,'light-dark');
+  assert.equal(payload.adaptationProfiles.Dark.preset,'dark-dark');
+  for (const mode of ['Light','Dark']) assert.equal(payload.backgroundTones[mode].tone,payload.adaptationProfiles[mode].tone);
+  for (const id of ['forest-scholar','phainon']) {
+    const custom=await loadThemePayload(root,root+'themes/'+id,'Auto');
+    assert.equal(Object.hasOwn(custom,'adaptationProfiles'),false);
+    assert.equal(Object.hasOwn(custom,'backgroundTones'),false);
+  }
+});
+
+test('Light dark-tone preset changes only reading surface and protects dark text contrast', async () => {
+  const css=await fs.readFile(root+'styles/base.css','utf8');
+  const rules=[...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(m=>m[1].includes('data-skin-background-tone') && m[1].includes('[data-skin-adaptation="light"]'));
+  assert.equal(rules.length,1);
+  assert.ok(rules[0][1].includes('[data-skin-visual-adaptation="universal"]'));
+  assert.ok(rules[0][1].includes('[data-skin-background-tone="dark"]'));
+  const values=Object.fromEntries([...rules[0][2].matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(m=>[m[1],m[2]]));
+  assert.deepEqual(values,{'--codex-skin-main-content-surface':'rgba(250, 250, 248, 0.70)'});
+  const alpha=Number(values['--codex-skin-main-content-surface'].match(/, ([\d.]+)\)$/)[1]);
+  const luminance=rgb=>rgb.map(v=>v/255).map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[0.2126,0.7152,0.0722][i],0);
+  // Worst-case black wallpaper; no additional wash/scrim credited.
+  for(const text of [[32,36,40],[32,53,45]]) {
+    assert.ok((luminance([250,250,248].map(v=>v*alpha))+0.05)/(luminance(text)+0.05)>=4.5);
+  }
+  assert.ok(alpha<1);
+});
+
 test('brightness thresholds and invalid values', () => {
   for (const [v, tone] of [[0,'dark'],[0.349,'dark'],[0.35,'medium'],[0.699,'medium'],[0.70,'light'],[1,'light']]) assert.equal(classifyBrightness(v), tone);
   for (const v of [-1, 2, NaN, Infinity]) assert.throws(() => classifyBrightness(v));
@@ -66,9 +109,9 @@ test('payload analyzes Universal once per background; Custom has no tone data', 
     assert.equal(Object.hasOwn(custom,'backgroundTones'),false);
   }
 });
-test('tone CSS is Universal Dark only and changes only five surface variables', async () => {
+test('Dark tone presets remain Universal-only and change only five surface variables', async () => {
   const css=await fs.readFile(root+'styles/base.css','utf8');
-  const rules=[...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(m=>m[1].includes('data-skin-background-tone'));
+  const rules=[...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(m=>m[1].includes('data-skin-background-tone') && m[1].includes('[data-skin-adaptation="dark"]'));
   assert.equal(rules.length,2);
   for(const [,selector,body] of rules) {
     assert.ok(selector.includes('[data-skin-visual-adaptation="universal"]'));

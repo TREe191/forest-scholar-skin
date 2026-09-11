@@ -1,0 +1,16 @@
+{
+  "$schema": "../theme.schema.json",
+  "schemaVersion": 2,
+  "id": "universal-dark-test",
+  "name": "Universal Dark Test",
+  "version": "0.1.0-experimental",
+  "author": "tree",
+  "description": "Experimental single-image package for validating Universal adaptation with a dark background. Not an official release theme.",
+  "compatibility": {
+    "codexAppearances": ["light", "dark"]
+  },
+  "background": {
+    "default": "assets/background.png"
+  },
+  "layout": "layout.json"
+}

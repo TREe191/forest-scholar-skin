@@ -303,9 +303,32 @@ test("Forest Scholar and Phainon still override Universal Dark defaults", async 
   }
 });
 
+test("sidebar boundary changes only Universal main left border color", async () => {
+  const base = await fs.readFile(path.join(projectRoot, 'styles', 'base.css'), 'utf8');
+  const declarations = cssRules(base).filter(rule => rule.body.includes('--codex-skin-sidebar-divider:'));
+  assert.equal(declarations.length, 2);
+  for (const [mode, value] of [['light', 'rgba(32, 36, 40, 0.10)'], ['dark', 'rgba(180, 188, 196, 0.045)']]) {
+    const rule = declarations.find(rule => rule.selector === `html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="${mode}"])`);
+    assert.ok(rule?.body.includes(`--codex-skin-sidebar-divider: ${value};`));
+  }
+  for (const id of ['universal-demo', 'forest-scholar', 'phainon']) {
+    for (const mode of ['Light', 'Dark']) {
+      const payload = await loadThemePayload(projectRoot, path.join(projectRoot, 'themes', id), mode);
+      const rules = cssRules(payload.css).filter(rule => rule.body.includes('var(--codex-skin-sidebar-divider)'));
+      assert.equal(rules.length, 1);
+      assert.equal(normalizeSelector(rules[0].selector), 'html.forest-scholar-skin[data-skin-visual-adaptation="universal"] main[class*="_MainContentSurface_"].border-l-hairline');
+      assert.equal(rules[0].body.trim(), 'border-left-color: var(--codex-skin-sidebar-divider) !important;');
+      assert.equal(payload.theme.visualAdaptation, id === 'universal-demo' ? 'universal' : 'custom');
+    }
+  }
+});
+
 test("Codex compatibility colors are supplied through variables", async () => {
   const css = await fs.readFile(path.join(projectRoot, "styles", "codex-compat.css"), "utf8");
-  assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b|rgba?\s*\(/i);
+  // Local gradient tokens are intentionally scoped to the diagnosed overlay.
+  // Actual CSS color properties must still consume tokens, not literal colors.
+  const propertyBodies = cssRules(css).map(rule => rule.body.replace(/--codex-skin-work-gradient-(?:strong|middle|clear):[^;]+;/g, '')).join('\n');
+  assert.doesNotMatch(propertyBodies, /#[0-9a-f]{3,8}\b|rgba?\s*\(/i);
   for (const variable of [
     "--codex-skin-main-wash",
     "--codex-skin-sidebar-surface",
@@ -319,5 +342,39 @@ test("Codex compatibility colors are supplied through variables", async () => {
     "--codex-skin-work-gradient-clear",
   ]) {
     assert.match(css, new RegExp(`var\\(${variable.replaceAll("-", "\\-")}\\)`));
+  }
+});
+
+test("bottom fade alpha override is local, Universal Dark only and preserves stops", async () => {
+  const suffix = '.thread-scroll-container div[class~="bg-gradient-to-t"][class~="from-surface"][class~="via-surface"]';
+  const selector = 'html.forest-scholar-skin[data-skin-visual-adaptation="universal"][data-skin-adaptation="dark"] ' + suffix;
+  for (const id of ['universal-demo', 'forest-scholar', 'phainon']) {
+    for (const mode of ['Light', 'Dark']) {
+      const payload = await loadThemePayload(projectRoot, path.join(projectRoot, 'themes', id), mode);
+      const rules = cssRules(payload.css).filter(rule => normalizeSelector(rule.selector) === selector);
+      assert.equal(rules.length, 1);
+      const mask = 'linear-gradient(to right, transparent 0%, black min(28px, 50%), black max(calc(100% - 28px), 50%), transparent 100%)';
+      assert.equal(normalizeSelector(rules[0].body), '--codex-skin-work-gradient-strong: rgba(20, 22, 26, 0.30); --codex-skin-work-gradient-middle: rgba(20, 22, 26, 0.10); --codex-skin-work-gradient-clear: rgba(20, 22, 26, 0); ' + `-webkit-mask-image: ${mask}; mask-image: ${mask};`);
+      assert.equal(payload.theme.visualAdaptation, id === 'universal-demo' ? 'universal' : 'custom');
+      const original = cssRules(payload.css).find(rule => normalizeSelector(rule.selector) === 'html.forest-scholar-skin ' + suffix);
+      assert.equal(normalizeSelector(original.body), 'background-image: linear-gradient( to top, var(--codex-skin-work-gradient-strong) 0%, var(--codex-skin-work-gradient-middle) 50%, var(--codex-skin-work-gradient-clear) 100% ) !important;');
+    }
+  }
+});
+
+test("Light dark-tone bottom fade changes only local gradient tokens", async () => {
+  const suffix = '.thread-scroll-container div[class~="bg-gradient-to-t"][class~="from-surface"][class~="via-surface"]';
+  const selector = 'html.forest-scholar-skin[data-skin-visual-adaptation="universal"][data-skin-adaptation="light"][data-skin-background-tone="dark"] ' + suffix;
+  for (const id of ['universal-dark-test', 'universal-demo', 'forest-scholar', 'phainon']) {
+    const payload = await loadThemePayload(projectRoot, path.join(projectRoot, 'themes', id), 'Auto');
+    const rules = cssRules(payload.css).filter(rule => normalizeSelector(rule.selector) === selector);
+    assert.equal(rules.length, 1);
+    assert.equal(normalizeSelector(rules[0].body), '--codex-skin-work-gradient-strong: rgba(248, 248, 246, 0.20); --codex-skin-work-gradient-middle: rgba(248, 248, 246, 0.06); --codex-skin-work-gradient-clear: rgba(248, 248, 246, 0);');
+    // Exact selector requires all three root attributes: Custom, Dark UI,
+    // and Light UI on medium/light artwork cannot match this override.
+    const eligible = payload.theme.visualAdaptation === 'universal' && payload.backgroundTones?.Light?.tone === 'dark';
+    assert.equal(eligible, id === 'universal-dark-test');
+    const original = cssRules(payload.css).find(rule => normalizeSelector(rule.selector) === 'html.forest-scholar-skin ' + suffix);
+    assert.equal(normalizeSelector(original.body), 'background-image: linear-gradient( to top, var(--codex-skin-work-gradient-strong) 0%, var(--codex-skin-work-gradient-middle) 50%, var(--codex-skin-work-gradient-clear) 100% ) !important;');
   }
 });

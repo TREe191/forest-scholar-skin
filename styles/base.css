@@ -46,17 +46,24 @@ html.forest-scholar-skin:where([data-skin-adaptation="dark"]) {
 }
 
 html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="light"]) {
+  --codex-skin-sidebar-divider: rgba(32, 36, 40, 0.10);
   --codex-skin-topbar-surface: rgba(248, 248, 246, 0.94);
   --codex-skin-background-scrim: rgba(255, 255, 255, 0.08);
 }
 
 html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="dark"]) {
+  --codex-skin-sidebar-divider: rgba(180, 188, 196, 0.045);
   --codex-skin-topbar-surface: rgba(20, 22, 26, 0.94);
   --codex-skin-background-scrim: rgba(0, 0, 0, 0.12);
 }
 
 /* Tone is analyzed once in the payload. Medium/unknown keeps base defaults.
-   Only Universal Dark surfaces vary; Light and Custom themes stay unchanged. */
+   Universal presets are selected by adaptation-profile.mjs through the existing
+   appearance/tone attributes. Custom themes do not participate. */
+html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="light"][data-skin-background-tone="dark"]) {
+  --codex-skin-main-content-surface: rgba(250, 250, 248, 0.70);
+}
+
 html.forest-scholar-skin:where([data-skin-visual-adaptation="universal"][data-skin-adaptation="dark"][data-skin-background-tone="light"]) {
   --codex-skin-background-scrim: rgba(0, 0, 0, 0.03);
   --codex-skin-main-wash: rgba(18, 20, 24, 0.18);

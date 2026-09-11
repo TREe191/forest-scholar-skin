@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { loadThemePackage } from "./theme-loader.mjs";
 import { analyzePngTone } from "./background-tone.mjs";
+import { resolveAdaptationProfile } from "./adaptation-profile.mjs";
 
 function encodeImage(background) {
   const base64 = background.bytes.toString("base64");
@@ -39,6 +40,7 @@ export async function loadThemePayload(root, themePackage, mode) {
   const encodedByBackground = new Map();
   const visualAdaptation = theme.styles.length === 0 ? "universal" : "custom";
   const backgroundTones = {};
+  const adaptationProfiles = {};
   for (const appearance of theme.supportedAppearances) {
     const modeName = appearance === "light" ? "Light" : "Dark";
     const background = theme.backgrounds[appearance];
@@ -51,7 +53,13 @@ export async function loadThemePayload(root, themePackage, mode) {
     images[modeName] = { dataUrl: encoded.dataUrl, width: encoded.width, height: encoded.height };
     layouts[modeName] = theme.variants[appearance].layoutConfig;
     imageStats[modeName] = encoded.stats;
-    if (encoded.toneAnalysis) backgroundTones[modeName] = encoded.toneAnalysis;
+    if (encoded.toneAnalysis) {
+      adaptationProfiles[modeName] = resolveAdaptationProfile(encoded.toneAnalysis, appearance);
+      // Keep the renderer's existing tone contract. Preserve shared analysis
+      // identity when policy does not change its classified tone.
+      backgroundTones[modeName] = adaptationProfiles[modeName].tone === encoded.toneAnalysis.tone
+        ? encoded.toneAnalysis : { ...encoded.toneAnalysis, tone: adaptationProfiles[modeName].tone };
+    }
   }
   return {
     theme: {
@@ -65,7 +73,7 @@ export async function loadThemePayload(root, themePackage, mode) {
     images,
     layouts,
     imageStats,
-    ...(visualAdaptation === "universal" ? { backgroundTones } : {}),
+    ...(visualAdaptation === "universal" ? { backgroundTones, adaptationProfiles } : {}),
     mode,
   };
 }
