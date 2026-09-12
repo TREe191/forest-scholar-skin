@@ -3,8 +3,14 @@ import { renderThemePreview } from "./components/theme-preview.mjs";
 import { renderSettingsPanel } from "./components/settings-panel.mjs";
 import { renderStatusBar } from "./components/status-bar.mjs";
 import { legacyAppearanceToSkinAdaptation, skinAdaptationToLegacyAppearance } from "../shared/contracts.mjs";
+import { PALETTE_TOKENS } from '../../../scripts/palette-overrides.mjs';
+import { slotsFor, switchWallpaperMode, replaceWallpaper, renderWallpaperSlots } from './components/wallpaper-slots.mjs';
+import { createEditorExitGuard } from './components/editor-exit-guard.mjs';
+import { installUiPreferences } from './ui-preferences.mjs';
 
 const api = window.themeManager;
+installUiPreferences(document,api);
+import { isSelectionDirty } from '../shared/applied-state.mjs';
 const elements = {
   themeList: document.querySelector("#theme-list"),
   themeCount: document.querySelector("#theme-count"),
@@ -22,6 +28,9 @@ const elements = {
     subtitle: document.querySelector("#preview-subtitle"),
   },
   settings: {
+    summary: document.querySelector('#adaptation-summary'),
+    appliedNotice: document.querySelector('#applied-notice'),
+    advancedButton: document.querySelector('#open-adaptation'),
     adaptationInputs: [...document.querySelectorAll('input[name="skin-adaptation"]')],
     advanced: document.querySelector("#advanced-adaptation"),
     compatibilityWarning: document.querySelector("#compatibility-warning"),
@@ -43,6 +52,7 @@ const state = {
   invalidThemes: [],
   selectedTheme: null,
   activeTheme: null,
+  applied: null,
   previewVariant: "light",
   skinAdaptation: "follow-codex",
   appliedSkinAdaptation: "follow-codex",
@@ -60,7 +70,7 @@ function activeThemeName() {
 }
 
 function isDirty() {
-  return state.selectedTheme !== state.activeTheme || state.skinAdaptation !== state.appliedSkinAdaptation;
+  return isSelectionDirty(selectedTheme(), state.activeTheme, skinAdaptationToLegacyAppearance(state.skinAdaptation), state.applied);
 }
 
 function isBusy() {
@@ -91,7 +101,14 @@ function render() {
   renderThemeList(elements.themeList, state.themes, {
     selectedTheme: state.selectedTheme,
     activeTheme: state.activeTheme,
-    onSelect: (themeId) => {
+    applied: state.applied,
+    busy,
+    onRename: openRename,
+    onEdit: openEditor,
+    onDuplicate: duplicateTheme,
+    onDelete: deleteTheme,
+    onSelect: async (themeId) => {
+      if(createDialog.open && !await requestEditorExit())return;
       state.selectedTheme = themeId;
       setStatus("ready", dirtyMessage());
       render();
@@ -110,6 +127,7 @@ function render() {
     theme,
   });
   elements.rescanButton.disabled = busy;
+  document.querySelector('#create-theme').disabled = busy;
   renderStatusBar(elements.status, {
     tone: state.statusTone,
     message: state.statusMessage,
@@ -132,6 +150,7 @@ function acceptBootstrap(result, { preserveSelection = false } = {}) {
   state.themes = Array.isArray(result.themes) ? result.themes : [];
   state.invalidThemes = Array.isArray(result.invalidThemes) ? result.invalidThemes : [];
   state.activeTheme = result.config.activeTheme;
+  state.applied = result.applied ?? null;
   state.skinAdaptation = legacyAppearanceToSkinAdaptation(result.config.appearance);
   state.appliedSkinAdaptation = state.skinAdaptation;
   const previousSelectionExists = preserveSelection && state.themes.some((theme) => theme.id === state.selectedTheme);
@@ -144,7 +163,7 @@ function acceptBootstrap(result, { preserveSelection = false } = {}) {
   state.operation = "idle";
   if (!result.activeThemeValid) setStatus("error", "The configured activeTheme is not a valid loaded Theme Package.");
   else if (state.invalidThemes.length > 0) setStatus("ready", `Ready. ${state.invalidThemes.length} invalid package${state.invalidThemes.length === 1 ? " was" : "s were"} isolated.`);
-  else setStatus("ready", "Ready.");
+  else setStatus("ready", dirtyMessage());
 }
 
 async function bootstrap() {
@@ -174,6 +193,10 @@ async function runOperation(name, operation, successMessage) {
     render();
   }
 }
+
+const adaptationDialog=document.querySelector('#adaptation-dialog');
+document.querySelector('#open-adaptation').addEventListener('click',()=>adaptationDialog.showModal());
+document.querySelector('#close-adaptation').addEventListener('click',()=>adaptationDialog.close());
 
 elements.rescanButton.addEventListener("click", async () => {
   const result = await runOperation("scanning", () => api.rescanThemes(), "Theme Packages rescanned.");
@@ -208,6 +231,8 @@ elements.settings.applyButton.addEventListener("click", async () => {
   );
   if (result) {
     state.activeTheme = result.config.activeTheme;
+    state.applied = result.applied ?? null;
+    if(result.themes) state.themes = result.themes;
     state.appliedSkinAdaptation = legacyAppearanceToSkinAdaptation(result.config.appearance);
   }
   render();
@@ -224,5 +249,173 @@ elements.settings.restoreButton.addEventListener("click", () => runOperation(
   () => api.restoreCodex(),
   "Codex restore workflow completed.",
 ));
+
+const createDialog = document.querySelector('#create-dialog');
+let choosing=false, renameId=null;
+let editorModel={mode:'single',images:{}};
+const wallpaperMode=document.querySelector('#wallpaper-mode');
+const paletteRows=[];
+for(const mode of ['light','dark']){
+  const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=mode;group.append(legend);
+  for(const token of Object.keys(PALETTE_TOKENS)){
+    const row=document.createElement('label');row.className='palette-row';
+    const enabled=document.createElement('input');enabled.type='checkbox';
+    const caption=document.createElement('span');caption.textContent=token;
+    const color=document.createElement('input');color.type='color';color.setAttribute('aria-label',`${mode} ${token} color`);
+    const alpha=document.createElement('input');alpha.type='number';alpha.min='0';alpha.max='1';alpha.step='0.01';alpha.value='1';alpha.setAttribute('aria-label',`${mode} ${token} alpha`);
+    enabled.addEventListener('change',()=>{color.disabled=alpha.disabled=!enabled.checked;});
+    row.append(enabled,caption,color,alpha);group.append(row);paletteRows.push({mode,token,enabled,color,alpha});
+  }document.querySelector('#palette-fields').append(group);
+}
+function setPalette(palette={}){for(const r of paletteRows){const v=palette[r.mode]?.[r.token];r.enabled.checked=!!v;r.color.value=v?.color??'#808080';r.alpha.value=String(v?.alpha??1);r.color.disabled=r.alpha.disabled=!v;}}
+function getPalette(){const p={schemaVersion:1,light:{},dark:{}};for(const r of paletteRows)if(r.enabled.checked)p[r.mode][r.token]={color:r.color.value,alpha:Number(r.alpha.value)};return p;}
+function hasImages(){return slotsFor(editorModel.mode).some(s=>editorModel.images[s]);}
+function setSlots(){
+  wallpaperMode.disabled=choosing;
+  confirmCreate.disabled=choosing||!hasImages();
+  renderWallpaperSlots(document.querySelector('#wallpaper-slots'),editorModel,{
+    busy:choosing,choose:slot=>chooseImage(slot,()=>api.pickImage()),
+    clear:async slot=>{
+      if(choosing)return;
+      const token=replaceWallpaper(editorModel,slot,null);
+      setSlots();
+      if(token)await api.clearImage(token);
+    },drop:dropWallpaper
+  });
+}
+wallpaperMode.addEventListener('change',()=>{
+  if(choosing){wallpaperMode.value=editorModel.mode;return;}
+  switchWallpaperMode(editorModel,wallpaperMode.value);setSlots();
+});
+const confirmCreate=document.querySelector('#create-confirm');
+function resetImage(){editorModel={mode:'single',images:{}};document.querySelector('#wallpaper-error').textContent='';setSlots();}
+async function chooseImage(slot,operation){
+  if(choosing)return;choosing=true;setSlots();
+  document.querySelector('#wallpaper-error').textContent='';
+  try{const result=await operation();if(!result.ok)throw Error(result.error);if(result.image){
+    const token=replaceWallpaper(editorModel,slot,result.image);
+    if(token)await api.clearImage(token);
+  }}
+  catch(error){document.querySelector('#wallpaper-error').textContent=slot+': '+error.message;}
+  finally{choosing=false;setSlots();}
+}
+// Prevent navigation everywhere; only this creation zone imports a dropped file.
+document.addEventListener('dragover',event=>event.preventDefault());
+document.addEventListener('drop',event=>event.preventDefault());
+function dropWallpaper(slot,event){
+  if(!createDialog.open||choosing)return;
+  const files=[...event.dataTransfer.files];
+  if(files.length!==1||files[0].size>20*1024*1024||! /\.(png|jpe?g)$/i.test(files[0].name)){document.querySelector('#wallpaper-error').textContent='Drop one PNG/JPG up to 20 MB.';return;}
+  chooseImage(slot,async()=>api.dropImage(files[0].name,new Uint8Array(await files[0].arrayBuffer())));
+}
+const unsavedDialog=document.querySelector('#editor-unsaved-dialog');
+function askEditorExit(){
+  return new Promise(resolve=>{
+    const finish=choice=>{
+      unsavedDialog.close();
+      unsavedDialog.oncancel=null;
+      resolve(choice);
+    };
+    document.querySelector('#editor-exit-save').onclick=()=>finish('save');
+    document.querySelector('#editor-exit-discard').onclick=()=>finish('discard');
+    document.querySelector('#editor-exit-stay').onclick=()=>finish('stay');
+    unsavedDialog.oncancel=event=>{event.preventDefault();finish('stay');};
+    unsavedDialog.showModal();
+    document.querySelector('#editor-exit-stay').focus();
+  });
+}
+const editorExit=createEditorExitGuard({
+  readDraft:()=>({name:document.querySelector('#create-name').value,mode:editorModel.mode,
+    images:editorModel.images,paletteOverrides:getPalette()}),
+  ask:askEditorExit,save:saveEditorDraft,close:closeEditor,
+});
+async function requestEditorExit(){
+  if(choosing)return false;
+  return editorExit.request();
+}
+createDialog.addEventListener('cancel',event=>{event.preventDefault();void requestEditorExit();});
+function closeEditor(){
+  // Clean before another editor opens, not in the asynchronously dispatched close event.
+  resetImage();api.clearImage();createDialog.close();
+}
+document.querySelector('#create-theme').addEventListener('click', async () => {
+  if(createDialog.open && !await requestEditorExit())return;
+  resetImage();
+  editorModel={mode:'single',images:{}};wallpaperMode.value='single';setPalette();setSlots();
+  document.querySelector('#palette-advanced').hidden=false;
+  document.querySelector('#custom-copy-note').hidden=true;
+  document.querySelector('#create-heading').textContent='Create Theme / Add Wallpaper';
+  document.querySelector('#create-name').value = '';
+  editorExit.begin();
+  createDialog.showModal();
+  document.querySelector('#create-name').focus();
+});
+document.querySelector('#create-cancel').addEventListener('click', () => {void requestEditorExit();});
+document.querySelector('#create-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  await saveEditorDraft();
+});
+async function saveEditorDraft(){
+  const name = document.querySelector('#create-name').value.trim();
+  if(isBusy()||choosing)return false;
+  if (!name || !hasImages() || !document.querySelector('#create-form').reportValidity()) {
+    document.querySelector('#wallpaper-error').textContent='Enter a theme name and choose at least one wallpaper; check palette values.';
+    return false;
+  }
+  choosing=true;setSlots();
+  document.querySelector('#create-form').inert=true;
+  const model={id:editorModel.id,name,mode:editorModel.mode,tokens:Object.fromEntries(Object.entries(editorModel.images).map(([s,v])=>[s,v.token])),paletteOverrides:getPalette(),revision:editorModel.revision};
+  const result = await runOperation('saving', () => api.saveEditor(model), 'Theme saved.');
+  choosing=false;setSlots();
+  document.querySelector('#create-form').inert=false;
+  if (result?.canceled) setStatus('ready', 'Creation canceled. No theme was added.');
+  else if (result) {
+    closeEditor();
+    const pendingAdaptation = state.skinAdaptation;
+    acceptBootstrap(result);
+    state.selectedTheme = result.created.id;
+    state.skinAdaptation = pendingAdaptation;
+    setStatus('ready', 'Theme saved and selected. Apply when ready; Codex was not restarted.');
+  }
+  render();
+  if(!result || result.canceled){
+    document.querySelector('#wallpaper-error').textContent=result?.canceled?'Save canceled. Your draft is still here.':state.statusMessage;
+    return false;
+  }
+  return true;
+}
+
+function openRename(theme){renameId=theme.id;document.querySelector('#rename-name').value=theme.name;document.querySelector('#rename-dialog').showModal();}
+async function openEditor(theme){
+  if(createDialog.open && !await requestEditorExit())return;
+  const result=await runOperation('loading',()=>api.loadEditor(theme.id),'Editor loaded.');if(!result)return;
+  editorModel=result.model;wallpaperMode.value=editorModel.mode;setPalette(editorModel.paletteOverrides);setSlots();
+  document.querySelector('#palette-advanced').hidden=Boolean(editorModel.customStyles);
+  document.querySelector('#custom-copy-note').hidden=!editorModel.customStyles;
+  document.querySelector('#create-name').value=editorModel.name;document.querySelector('#create-heading').textContent='Edit Theme';editorExit.begin();createDialog.showModal();
+}
+
+async function duplicateTheme(theme){
+  if(createDialog.open && !await requestEditorExit())return;
+  const result=await runOperation('duplicating',()=>api.duplicateTheme(theme.id),'Theme duplicated.');
+  if(!result)return;
+  const adaptation=state.skinAdaptation;
+  acceptBootstrap(result);state.selectedTheme=result.created.id;state.skinAdaptation=adaptation;
+  setStatus('ready','Independent copy created. Edit it, then Apply when ready.');render();
+  await openEditor({id:result.created.id});
+}
+document.querySelector('#rename-cancel').addEventListener('click',()=>document.querySelector('#rename-dialog').close());
+function refreshPreservingSelection(result){const adaptation=state.skinAdaptation;acceptBootstrap(result,{preserveSelection:true});state.skinAdaptation=adaptation;}
+document.querySelector('#rename-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(isBusy())return;
+  const name=document.querySelector('#rename-name').value.trim();if(!name)return;
+  document.querySelector('#rename-dialog').close();
+  const result=await runOperation('renaming',()=>api.renameTheme(renameId,name),'Theme renamed.');
+  if(result)refreshPreservingSelection(result);render();
+});
+async function deleteTheme(theme){
+  const result=await runOperation('deleting',()=>api.deleteTheme(theme.id,state.selectedTheme),'Theme removed from catalog.');
+  if(result){refreshPreservingSelection(result);setStatus('ready',result.canceled?'Deletion canceled.':'Theme moved to recovery folder.');}render();
+}
 
 bootstrap();

@@ -3,6 +3,7 @@ import path from "node:path";
 import { loadThemePackage } from "./theme-loader.mjs";
 import { analyzePngTone } from "./background-tone.mjs";
 import { resolveAdaptationProfile } from "./adaptation-profile.mjs";
+import { paletteOverridesCss } from './palette-overrides.mjs';
 
 function encodeImage(background) {
   const base64 = background.bytes.toString("base64");
@@ -68,7 +69,7 @@ export async function loadThemePayload(root, themePackage, mode) {
       version: theme.manifest.version,
       visualAdaptation,
     },
-    css: [baseCss, compatibilityCss, ...theme.styles.map((style) => style.content)].join("\n\n"),
+    css: [baseCss, compatibilityCss, ...(visualAdaptation==='universal' && theme.manifest.paletteOverrides ? [paletteOverridesCss(theme.manifest.paletteOverrides)] : []), ...theme.styles.map((style) => style.content)].join("\n\n"),
     supportedAppearances: theme.supportedAppearances,
     images,
     layouts,

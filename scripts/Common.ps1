@@ -18,6 +18,33 @@ function Test-FssPathEqual {
     }
 }
 
+function Get-FssPathComparisonDiagnostic {
+    param([AllowNull()][AllowEmptyString()][string]$ExpectedPath, [AllowNull()][AllowEmptyString()][string]$ActualPath)
+    $expected = $null
+    $actual = $null
+    $reason = $null
+    try { if ($ExpectedPath) { $expected = [System.IO.Path]::GetFullPath($ExpectedPath).TrimEnd('\') } } catch { $reason = 'expected-path-normalization-failed' }
+    try { if ($ActualPath) { $actual = [System.IO.Path]::GetFullPath($ActualPath).TrimEnd('\') } } catch { $reason = 'actual-path-normalization-failed' }
+    if (-not $ExpectedPath) { $reason = 'expected-path-unavailable' }
+    elseif (-not $ActualPath) { $reason = 'actual-path-unavailable' }
+    elseif ($expected -and $actual -and -not $expected.Equals($actual, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $reason = 'normalized-path-different'
+        if (-not [System.IO.Path]::GetFileName($expected).Equals([System.IO.Path]::GetFileName($actual), [System.StringComparison]::OrdinalIgnoreCase)) {
+            $reason = 'executable-name-different'
+        } elseif ($expected -match '\\WindowsApps\\([^\\]+)\\' -and $actual -match '\\WindowsApps\\([^\\]+)\\') {
+            $expectedPackage = [regex]::Match($expected, '\\WindowsApps\\([^\\]+)\\', 'IgnoreCase').Groups[1].Value
+            $actualPackage = [regex]::Match($actual, '\\WindowsApps\\([^\\]+)\\', 'IgnoreCase').Groups[1].Value
+            if (-not $expectedPackage.Equals($actualPackage, [System.StringComparison]::OrdinalIgnoreCase)) { $reason = 'windowsapps-package-directory-different' }
+        }
+    }
+    return [pscustomobject]@{
+        expectedPath = $ExpectedPath; actualPath = $ActualPath
+        normalizedExpectedPath = $expected; normalizedActualPath = $actual
+        comparisonMode = 'GetFullPath.TrimEnd(backslash)/OrdinalIgnoreCase'
+        mismatchReason = $reason
+    }
+}
+
 function Write-FssJsonAtomic {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -965,6 +992,7 @@ function Wait-FssCodexCdpReadiness {
             FailureStage = $FailureStage
             FailureReason = $FailureReason
             ProcessIdentity = $processIdentity
+            PathComparison = Get-FssPathComparisonDiagnostic -ExpectedPath $ExpectedExecutable -ActualPath $(if ($null -ne $processObservation.Identity) { $processObservation.Identity.Path } else { $null })
             CdpIdentity = $CdpIdentity
             ProcessAttempts = $processAttempts
             ReadinessAttempts = $readinessAttempts

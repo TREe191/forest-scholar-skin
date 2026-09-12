@@ -1,6 +1,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, session, dialog, nativeImage } from "electron";
+import { ThemeCreator } from './services/theme-creator.mjs';
+import { ThemeManagement } from './services/theme-management.mjs';
+import { WallpaperDrafts } from './services/wallpaper-drafts.mjs';
+import { ThemeEditor } from './services/theme-editor.mjs';
+import { ThemeDuplicator } from './services/theme-duplicate.mjs';
+import { GuiPreferences } from './services/gui-preferences.mjs';
+import { translate } from '../shared/i18n.mjs';
 import { resolvePathContext } from "./paths.mjs";
 import { ThemeCatalog } from "./services/theme-catalog.mjs";
 import { AppConfigStore } from "./services/app-config.mjs";
@@ -21,12 +28,35 @@ async function createServices() {
   });
   const catalog = new ThemeCatalog({ themesRoot: paths.themesRoot });
   await catalog.scan();
-  installPreviewProtocol(protocol, catalog);
-  return {
+  const creator = new ThemeCreator({ themesRoot: paths.themesRoot,
+      validateImage: bytes => {
+        const image = nativeImage.createFromBuffer(bytes), size = image.getSize();
+        if (image.isEmpty() || !size.width || !size.height || size.width * size.height > 8_000_000) throw new RangeError('Image must decode correctly and contain at most 8 million pixels.');
+      },
+      convertJpeg: bytes => nativeImage.createFromBuffer(bytes).toPNG(),
+    });
+  const drafts = new WallpaperDrafts(creator);
+  const configStore = new AppConfigStore({ configPath: paths.configPath });
+  const guiPreferences = new GuiPreferences({filePath:path.join(path.dirname(paths.configPath),'.gui-settings.json')});
+  installPreviewProtocol(protocol, catalog, drafts);
+  const result = {
+    creator, drafts, configStore, guiPreferences,
+    management: new ThemeManagement({themesRoot:paths.themesRoot,configStore,confirmDelete:async name=>{
+      const {language}=await guiPreferences.read();
+      const answer=await dialog.showMessageBox({type:'warning',buttons:['Cancel','Delete theme'].map(s=>translate(s,language)),defaultId:0,cancelId:0,message:translate(`Delete “${name}”?`,language),detail:translate('The package will be moved out of the theme list into runtime/deleted-themes for recovery.',language)});
+      return answer.response===1;
+    }}),
+    pickWallpaper: async () => {
+      const {language}=await guiPreferences.read();
+      const result = await dialog.showOpenDialog({ title: translate('Add Wallpaper',language), properties: ['openFile'], filters: [{ name: translate('Wallpaper (PNG / JPG)',language), extensions: ['png','jpg','jpeg'] }] });
+      return result.canceled ? null : result.filePaths[0];
+    },
     catalog,
-    configStore: new AppConfigStore({ configPath: paths.configPath }),
     actions: new CodexActions(paths),
   };
+  result.editor=new ThemeEditor({creator,drafts,management:result.management});
+  result.duplicator=new ThemeDuplicator({management:result.management,catalog});
+  return result;
 }
 
 async function createMainWindow() {

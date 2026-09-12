@@ -1,4 +1,9 @@
 export function renderSettingsPanel(elements, { skinAdaptation, dirty, busy, theme }) {
+  const label = {'follow-codex':'Follow Codex','force-light':'Force light skin','force-dark':'Force dark skin'}[skinAdaptation];
+  elements.summary.textContent = 'Adaptation: ' + label;
+  elements.summary.title = dirty ? 'Pending selection — Apply changes to save.' : 'Applied policy';
+  elements.appliedNotice.hidden = dirty || !theme;
+  elements.advancedButton.disabled = busy;
   const supported = theme?.supportedAppearances || [];
   const validAdaptation = skinAdaptation === "follow-codex" ||
     (skinAdaptation === "force-light" && supported.includes("light")) ||

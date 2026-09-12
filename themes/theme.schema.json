@@ -75,8 +75,10 @@
     },
     "version2": {
       "type": "object",
+      "allOf": [{ "if": { "required": ["paletteOverrides"] }, "then": { "properties": { "styles": { "maxItems": 0 } } } }],
       "required": ["schemaVersion", "compatibility", "background"],
       "properties": {
+        "paletteOverrides": { "$ref": "palette.schema.json" },
         "schemaVersion": { "const": 2 },
         "compatibility": {
           "type": "object",

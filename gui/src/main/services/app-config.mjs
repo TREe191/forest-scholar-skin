@@ -45,13 +45,23 @@ export class AppConfigStore {
     return parseConfig(await this.#fileSystem.readFile(this.#configPath, "utf8"));
   }
 
-  apply(selection, { themeExists }) {
-    const operation = this.#queue.then(() => this.#applyInternal(selection, themeExists));
+  async readApplied() {
+    try {
+      const value = JSON.parse(await this.#fileSystem.readFile(path.join(path.dirname(this.#configPath), '.gui-applied.json'), 'utf8'));
+      return value.schemaVersion === 1 && isThemeId(value.themeId) && isAppearance(value.appearance) &&
+        /^[a-f0-9]{64}$/.test(value.contentRevision) ? value : null;
+    } catch { return null; } // Unknown receipt never implies applied.
+  }
+
+  apply(selection, { themeExists, contentRevision }) {
+    const operation = this.#queue.then(() => this.#applyInternal(selection, themeExists, contentRevision));
     this.#queue = operation.catch(() => undefined);
     return operation;
   }
 
-  async #applyInternal(selection, themeExists) {
+  async #applyInternal(selection, themeExists, contentRevision) {
+    if (contentRevision !== undefined && !/^[a-f0-9]{64}$/.test(contentRevision))
+      throw new TypeError('Invalid content revision.');
     if (!selection || typeof selection !== "object" || Array.isArray(selection)) {
       throw new TypeError("Apply request must be an object.");
     }
@@ -88,6 +98,18 @@ export class AppConfigStore {
       const verified = parseConfig(await this.#fileSystem.readFile(this.#configPath, "utf8"));
       if (verified.activeTheme !== next.activeTheme || verified.appearance !== next.appearance) {
         throw new Error("The saved application configuration did not verify.");
+      }
+      if (contentRevision) {
+        const receiptPath = path.join(directory, '.gui-applied.json');
+        const receiptTemp = receiptPath + '.' + crypto.randomUUID() + '.tmp';
+        try {
+          await this.#fileSystem.writeFile(receiptTemp, JSON.stringify({
+            schemaVersion:1, themeId:next.activeTheme, appearance:next.appearance, contentRevision,
+          }) + '\n', {flag:'wx',mode:0o600});
+          await this.#fileSystem.rename(receiptTemp, receiptPath);
+        } finally {
+          await this.#fileSystem.rm(receiptTemp, {force:true}).catch(()=>undefined);
+        }
       }
       return verified;
     } catch (error) {

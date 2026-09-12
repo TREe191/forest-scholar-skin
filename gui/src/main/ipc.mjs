@@ -1,4 +1,5 @@
 import { IPC_CHANNELS, isAppearance, isThemeId } from "../shared/contracts.mjs";
+import { validateThemeName } from './services/theme-creator.mjs';
 
 function publicError(error) {
   const message = (error instanceof Error ? error.message : "The operation failed.")
@@ -18,7 +19,13 @@ export function assertThemeAppearanceCompatibility(catalog, selection) {
   }
 }
 
-export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog, configStore, actions }) {
+export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog, configStore, actions, creator, pickWallpaper, drafts, management, editor, duplicator, guiPreferences }) {
+  let creating = false;
+  let mutation = false;
+  const exclusive = async fn => {
+    if(mutation) throw Error('Another theme operation is in progress.');
+    mutation=true;try{return await fn();}finally{mutation=false;}
+  };
   const handle = (channel, operation) => {
     ipcMain.handle(channel, async (event, ...args) => {
       try {
@@ -37,20 +44,57 @@ export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog,
       ok: true,
       ...catalogState,
       config,
+      applied: await configStore.readApplied?.() ?? null,
       activeThemeValid: catalog.has(config.activeTheme),
     };
   };
 
   handle(IPC_CHANNELS.getState, buildState);
+  handle(IPC_CHANNELS.getGuiPreferences,async()=>({ok:true,preferences:await guiPreferences.read()}));
+  handle(IPC_CHANNELS.saveGuiPreferences,async value=>({ok:true,preferences:await guiPreferences.save(value)}));
+  handle(IPC_CHANNELS.duplicateTheme,id=>exclusive(async()=>{
+    const created=await duplicator.duplicate(id);return {...await buildState(),created};
+  }));
   handle(IPC_CHANNELS.rescanThemes, buildState);
-  handle(IPC_CHANNELS.applyConfig, async (selection) => {
+  handle(IPC_CHANNELS.loadEditor, id=>exclusive(async()=>({ok:true,model:await editor.load(id)})));
+  handle(IPC_CHANNELS.saveEditor, model=>exclusive(async()=>{const created=await editor.save(model);return {...await buildState(),created};}));
+  handle(IPC_CHANNELS.pickImage,async()=>{const source=await pickWallpaper();return source?{ok:true,image:await drafts.fromPath(source)}:{ok:true,canceled:true};});
+  handle(IPC_CHANNELS.dropImage,async request=>({ok:true,image:await drafts.prepare(request?.name,request?.bytes)}));
+  handle(IPC_CHANNELS.clearImage,async token=>{if(typeof token==='string')drafts.images.delete(token);else drafts.clear();return {ok:true};});
+  handle(IPC_CHANNELS.renameTheme,request=>exclusive(async()=>{
+    await management.rename(request?.id,request?.name);return await buildState();
+  }));
+  handle(IPC_CHANNELS.deleteTheme,request=>exclusive(async()=>{
+    if(!request || !isThemeId(request.pendingId))throw Error('Current selection is required.');
+    const result=await management.delete(request.id,request.pendingId);
+    return {...await buildState(),...result};
+  }));
+  handle(IPC_CHANNELS.createTheme, async request => {
+    if (!request || Object.keys(request).some(key => !['name','token'].includes(key))) throw new RangeError('Invalid create request');
+    const name = validateThemeName(request.name);
+    if (creating) throw new Error('Theme creation is already in progress.');
+    creating = true;
+    try {
+      if(drafts) {
+        const created=await drafts.create(name,request.token);
+        return {...await buildState(),created};
+      }
+      const source = await pickWallpaper();
+      if (!source) return {ok:true,canceled:true};
+      const created = await creator.create(name,source);
+      return {...await buildState(),created};
+    } finally { creating = false; }
+  });
+  handle(IPC_CHANNELS.applyConfig, (selection) => exclusive(async () => {
     if (!selection || !isThemeId(selection.activeTheme) || !isAppearance(selection.appearance)) {
       throw new RangeError("The requested theme selection is invalid.");
     }
+    const catalogState = await catalog.scan();
+    const contentRevision = catalogState.themes.find(theme=>theme.id===selection.activeTheme)?.contentRevision;
     assertThemeAppearanceCompatibility(catalog, selection);
-    const config = await configStore.apply(selection, { themeExists: (id) => catalog.has(id) });
-    return { ok: true, config };
-  });
+    const config = await configStore.apply(selection, { themeExists: (id) => catalog.has(id), contentRevision });
+    return { ok: true, config, ...catalogState, applied: await configStore.readApplied?.() ?? null };
+  }));
   handle(IPC_CHANNELS.launchCodex, async () => ({ ok: true, result: await actions.launch() }));
   handle(IPC_CHANNELS.restoreCodex, async () => ({ ok: true, result: await actions.restore() }));
 

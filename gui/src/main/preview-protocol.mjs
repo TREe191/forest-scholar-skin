@@ -21,15 +21,15 @@ function notFound() {
   });
 }
 
-export function installPreviewProtocol(protocolModule, catalog) {
+export function installPreviewProtocol(protocolModule, catalog, drafts) {
   protocolModule.handle(PREVIEW_SCHEME, (request) => {
     let url;
     try { url = new URL(request.url); }
     catch { return notFound(); }
     const segments = url.pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment));
-    if (url.hostname !== "theme" || segments.length !== 2) return notFound();
+    if (!['theme','draft'].includes(url.hostname) || segments.length !== 2) return notFound();
     const [themeId, variant] = segments;
-    const asset = catalog.getPreviewAsset(themeId, variant);
+    const asset = url.hostname==='draft' ? (variant==='image' ? drafts?.asset(themeId) : null) : catalog.getPreviewAsset(themeId, variant);
     if (!asset) return notFound();
     return new Response(asset.bytes, {
       status: 200,

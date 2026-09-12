@@ -1,0 +1,15 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://codex-skin.local/schemas/palette.schema.json",
+  "title":"Universal palette overrides v1",
+  "type":"object","additionalProperties":false,"required":["schemaVersion"],
+  "properties":{"schemaVersion":{"const":1},"light":{"$ref":"#/$defs/palette"},"dark":{"$ref":"#/$defs/palette"}},
+  "$defs":{
+    "color":{"type":"object","additionalProperties":false,"required":["color","alpha"],"properties":{"color":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"alpha":{"type":"number","minimum":0,"maximum":1}}},
+    "palette":{"type":"object","additionalProperties":false,"properties":{
+      "accent":{"$ref":"#/$defs/color"},"foreground":{"$ref":"#/$defs/color"},"foregroundMuted":{"$ref":"#/$defs/color"},
+      "sidebarSurface":{"$ref":"#/$defs/color"},"mainContentSurface":{"$ref":"#/$defs/color"},"chromeSurface":{"$ref":"#/$defs/color"},
+      "topbarSurface":{"$ref":"#/$defs/color"},"divider":{"$ref":"#/$defs/color"},"scrim":{"$ref":"#/$defs/color"},"topFade":{"$ref":"#/$defs/color"},"bottomFade":{"$ref":"#/$defs/color"}
+    }}
+  }
+}

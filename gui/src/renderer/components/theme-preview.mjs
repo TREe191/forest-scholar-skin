@@ -1,7 +1,31 @@
+const previewRequests = new WeakMap();
+
+function renderImage(elements, url) {
+  const image = elements.image;
+  if (url && previewRequests.get(image)?.url === url) return;
+  const request = { url };
+  previewRequests.set(image, request);
+  image.onload = image.onerror = null;
+  image.hidden = true;
+  elements.placeholder.hidden = Boolean(url);
+  if (!url) {
+    image.removeAttribute("src");
+    return;
+  }
+  const settle = available => {
+    if (previewRequests.get(image) !== request) return;
+    image.hidden = !available;
+    elements.placeholder.hidden = available;
+  };
+  image.onload = () => settle(image.naturalWidth > 0);
+  image.onerror = () => settle(false);
+  image.src = url;
+  if (image.complete) settle(image.naturalWidth > 0);
+}
+
 export function renderThemePreview(elements, theme, previewVariant) {
-  const hasTheme = Boolean(theme);
-  elements.image.hidden = !hasTheme;
-  elements.placeholder.hidden = hasTheme;
+  const url = theme?.previews?.[previewVariant];
+  renderImage(elements, typeof url === "string" && url.trim() ? url : null);
   if (!theme) {
     elements.image.removeAttribute("src");
     elements.image.alt = "";
@@ -13,7 +37,6 @@ export function renderThemePreview(elements, theme, previewVariant) {
     elements.subtitle.textContent = "Select a valid theme to inspect it.";
     return;
   }
-  elements.image.src = theme.previews[previewVariant];
   elements.image.alt = `${theme.name} ${previewVariant} background preview`;
   elements.name.textContent = theme.name;
   elements.version.textContent = `v${theme.version}`;

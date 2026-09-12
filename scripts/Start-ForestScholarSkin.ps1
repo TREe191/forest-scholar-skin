@@ -347,6 +347,19 @@ try {
 
     $failureStage = 'codex-registration-check'
     $registration = Get-FssCodexRegistration
+    $registrationEvidence = [ordered]@{
+        observedAt = [DateTime]::UtcNow.ToString('o')
+        source = 'Get-AppxPackage OpenAI.Codex; highest-version Store-signed registration'
+        expectedPathSource = 'registration.InstallLocation + app\ChatGPT.exe'
+        installLocation = $registration.InstallLocation
+        packageFullName = $registration.PackageFullName
+        expectedPath = $registration.ExpectedExecutable
+        appUserModelIdSource = 'Get-StartApps filtered by registered PackageFamilyName'
+        processPackageIdentityVerified = $false
+        crossLaunchPathCacheUsed = $false
+    }
+    Write-FssHistoryEvent -Event 'expected-path-source' -Details $registrationEvidence
+    Set-FssHistorySessionFields -Fields ([ordered]@{ registrationEvidence = $registrationEvidence })
     Set-FssHistorySessionFields -Fields ([ordered]@{
             expectedExecutable = $registration.ExpectedExecutable
             packageFullName = $registration.PackageFullName
@@ -424,6 +437,39 @@ try {
         -ProcessPollMilliseconds 100 `
         -CdpPollMilliseconds 350
     $appIdentity = $readiness.ProcessIdentity
+    $pathDiagnostic = $readiness.PathComparison
+    $pathEvidence = [ordered]@{
+        expectedPath = $pathDiagnostic.expectedPath
+        actualPath = $pathDiagnostic.actualPath
+        normalizedExpectedPath = $pathDiagnostic.normalizedExpectedPath
+        normalizedActualPath = $pathDiagnostic.normalizedActualPath
+        comparisonMode = $pathDiagnostic.comparisonMode
+        mismatchReason = $pathDiagnostic.mismatchReason
+        actualPathSource = 'Get-Process activation PID .Path (readiness observation)'
+        activationPid = $appProcessId
+    }
+    Write-FssHistoryEvent -Event 'activation-path-comparison' -Details $pathEvidence
+    Set-FssHistorySessionFields -Fields ([ordered]@{ pathComparison = $pathEvidence })
+    if ($readiness.FailureReason -eq 'path-mismatch') {
+        # Diagnostic reread only: never replace the registration or retry activation.
+        $registrationCheck = [ordered]@{
+            source = 'Get-AppxPackage OpenAI.Codex after path mismatch'
+            observedAt = [DateTime]::UtcNow.ToString('o')
+            queried = $false; packages = @(); originalRegistrationStillPresent = $null
+        }
+        try {
+            $currentPackages = @(Get-AppxPackage -Name 'OpenAI.Codex' -ErrorAction Stop)
+            $registrationCheck.queried = $true
+            $registrationCheck.packages = @($currentPackages | ForEach-Object {
+                [ordered]@{ packageFullName = "$($_.PackageFullName)"; installLocation = "$($_.InstallLocation)"; signatureKind = "$($_.SignatureKind)" }
+            })
+            $registrationCheck.originalRegistrationStillPresent = @($currentPackages | Where-Object {
+                "$($_.PackageFullName)" -eq $registration.PackageFullName -and "$($_.InstallLocation)" -eq $registration.InstallLocation
+            }).Count -gt 0
+        } catch { $registrationCheck.queryFailureType = $_.Exception.GetType().FullName }
+        Write-FssHistoryEvent -Event 'path-mismatch-registration-recheck' -Details $registrationCheck
+        Set-FssHistorySessionFields -Fields ([ordered]@{ pathMismatchRegistrationRecheck = $registrationCheck })
+    }
     foreach ($transition in @($readiness.Transitions)) {
         Write-FssHistoryEvent -Event 'readiness-transition' -At "$($transition.At)" -Details ([ordered]@{
                 stage = "$($transition.Stage)"

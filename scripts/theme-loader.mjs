@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveLayoutConfig } from "./layout-engine.mjs";
+import { validatePaletteOverrides } from './palette-overrides.mjs';
 
 const SUPPORTED_THEME_SCHEMA_VERSIONS = new Set([1, 2]);
 const MAX_MANIFEST_BYTES = 256 * 1024;
@@ -152,9 +153,13 @@ function validateManifestV1(manifest, styles) {
 function validateManifestV2(manifest, styles) {
   assertAllowedKeys(manifest, new Set([
     "$schema", "schemaVersion", "id", "name", "version", "author", "description",
-    "compatibility", "background", "layout", "styles",
+    "compatibility", "background", "layout", "styles", "paletteOverrides",
   ]), "theme.json");
   assertPlainObject(manifest.compatibility, "theme.compatibility");
+  if(Object.hasOwn(manifest,'paletteOverrides')) {
+    if(styles.length)throw new RangeError('Palette overrides require Universal adaptation (no styles).');
+    validatePaletteOverrides(manifest.paletteOverrides);
+  }
   assertAllowedKeys(manifest.compatibility, new Set(["codexAppearances"]), "theme.compatibility");
   const declaredAppearances = manifest.compatibility.codexAppearances;
   if (!Array.isArray(declaredAppearances) || declaredAppearances.length < 1 || declaredAppearances.length > 2) {

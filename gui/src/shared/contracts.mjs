@@ -1,4 +1,10 @@
 export const IPC_CHANNELS = Object.freeze({
+  getGuiPreferences:'theme-manager:get-gui-preferences',saveGuiPreferences:'theme-manager:save-gui-preferences',
+  duplicateTheme:'theme-manager:duplicate-theme',
+  loadEditor:'theme-manager:load-editor',saveEditor:'theme-manager:save-editor',
+  pickImage:'theme-manager:pick-image',dropImage:'theme-manager:drop-image',clearImage:'theme-manager:clear-image',
+  renameTheme:'theme-manager:rename-theme',deleteTheme:'theme-manager:delete-theme',
+  createTheme: "theme-manager:create-theme",
   getState: "theme-manager:get-state",
   rescanThemes: "theme-manager:rescan-themes",
   applyConfig: "theme-manager:apply-config",

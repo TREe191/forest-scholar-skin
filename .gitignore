@@ -1,5 +1,7 @@
 # Runtime state and diagnostics
 runtime/
+config/.gui-applied.json
+config/.gui-settings.json
 
 # Logs and temporary files
 *.log

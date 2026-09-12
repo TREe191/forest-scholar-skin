@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadThemePackage } from "../../../../scripts/theme-loader.mjs";
+import { readManagement } from './theme-management.mjs';
+import { themeContentRevision } from './theme-revision.mjs';
 
 const PREVIEW_SCHEME = "skin-preview";
 
@@ -19,6 +21,7 @@ function publicTheme(theme) {
   const { manifest } = theme;
   return Object.freeze({
     id: manifest.id,
+    contentRevision: themeContentRevision(theme),
     name: manifest.name,
     version: manifest.version,
     author: manifest.author,
@@ -65,7 +68,7 @@ export class ThemeCatalog {
         const id = loaded.manifest.id;
         if (packages.has(id)) throw new RangeError(`Duplicate theme identifier: ${id}.`);
         packages.set(id, loaded);
-        themes.push(publicTheme(loaded));
+        themes.push({...publicTheme(loaded),management:await readManagement(packagePath,loaded.manifest)});
       } catch (error) {
         invalidThemes.push(Object.freeze({
           folder: entry.name,
