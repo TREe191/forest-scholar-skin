@@ -11,6 +11,7 @@ import { ThemeDuplicator } from './services/theme-duplicate.mjs';
 import { GuiPreferences } from './services/gui-preferences.mjs';
 import { translate } from '../shared/i18n.mjs';
 import {resolveRuntimeMode,applicationInfo} from '../shared/runtime-mode.mjs';
+import {createBuildIdentity} from '../shared/build-identity.mjs';
 import { resolvePathContext,initializeUserData } from "./paths.mjs";
 import { ThemeCatalog } from "./services/theme-catalog.mjs";
 import { AppConfigStore } from "./services/app-config.mjs";
@@ -23,8 +24,13 @@ registerPreviewScheme(protocol);
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 let removeIpcHandlers = null;
 let services = null;
-const packagedMode=app.isPackaged?JSON.parse(readFileSync(new URL('./build-mode.json',import.meta.url),'utf8')).mode:undefined;
-const runtimeMode=resolveRuntimeMode({isPackaged:app.isPackaged,requested:process.env.THEME_MANAGER_MODE,packagedMode});
+let runtimeMode = null;
+let buildIdentity = null;
+
+function startupErrorDetail(error) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.trim().slice(0, 800) || "Unknown startup error.";
+}
 
 async function createServices() {
   const paths = await resolvePathContext({
@@ -48,8 +54,8 @@ async function createServices() {
   installPreviewProtocol(protocol, catalog, drafts);
   const result = {
     creator, drafts, configStore, guiPreferences,
-    runtimeInfo:applicationInfo(app.getVersion(),runtimeMode),
-    diagnostics:new DiagnosticsExporter({historyRoot:path.join(paths.runtimeRoot,'history'),info:applicationInfo(app.getVersion(),runtimeMode),chooseDestination:async defaultPath=>{
+    runtimeInfo:applicationInfo(app.getVersion(),runtimeMode,buildIdentity),
+    diagnostics:new DiagnosticsExporter({historyRoot:path.join(paths.runtimeRoot,'history'),info:applicationInfo(app.getVersion(),runtimeMode,buildIdentity),chooseDestination:async defaultPath=>{
       const result=await dialog.showSaveDialog({title:translate('Export diagnostics',(await guiPreferences.read()).language),defaultPath,filters:[{name:'ZIP',extensions:['zip']}]});
       return result.canceled?null:result.filePath;
     }}),
@@ -110,7 +116,12 @@ async function createMainWindow() {
   return window;
 }
 
-app.whenReady().then(async () => {
+async function startApplication() {
+  const packagedBuild=app.isPackaged?JSON.parse(readFileSync(new URL('./build-mode.json',import.meta.url),'utf8')):null;
+  const packagedMode=packagedBuild?.mode;
+  runtimeMode=resolveRuntimeMode({isPackaged:app.isPackaged,requested:process.env.THEME_MANAGER_MODE,packagedMode});
+  buildIdentity=app.isPackaged?createBuildIdentity(runtimeMode,packagedBuild?.gitCommit):createBuildIdentity(runtimeMode,process.env.THEME_MANAGER_GIT_COMMIT);
+  await app.whenReady();
   session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   services = await createServices();
@@ -118,9 +129,24 @@ app.whenReady().then(async () => {
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) await createMainWindow();
   });
-}).catch((error) => {
-  console.error("Theme Manager failed to start:", error instanceof Error ? error.message : error);
-  app.exit(1);
+}
+
+startApplication().catch((error) => {
+  const detail = startupErrorDetail(error);
+  console.error("Theme Manager failed to start:", detail);
+  try {
+    if (runtimeMode === "beta" || app.isPackaged) {
+      const issueKind = runtimeMode === "beta" ? "Beta issue" : "startup issue";
+      dialog.showErrorBox(
+        "Theme Manager could not start",
+        `Restart Theme Manager once. If it fails again, report this ${issueKind} and include the message below:\n\n${detail}`,
+      );
+    }
+  } catch (dialogError) {
+    console.error("Theme Manager could not show its startup error dialog:", startupErrorDetail(dialogError));
+  } finally {
+    app.exit(1);
+  }
 });
 
 app.on("window-all-closed", () => app.quit());

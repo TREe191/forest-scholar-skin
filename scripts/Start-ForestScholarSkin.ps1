@@ -529,6 +529,17 @@ try {
         lastObservedStage = $readiness.LastObservedStage
         listenerPids = @($readiness.ListenerPids)
         httpFailureType = $readiness.HttpFailureType
+        listenerOwningPid = $readiness.ListenerOwningPid
+        listenerOwnerIsActivationPid = $readiness.ListenerOwnerIsActivationPid
+        listenerOwnerPathMatchesExpected = $readiness.ListenerOwnerPathMatchesExpected
+        listenerOwnerRelation = $readiness.ListenerOwnerRelation
+        httpAttemptCount = $readiness.HttpAttemptCount
+        lastHttpFailureType = $readiness.LastHttpFailureType
+        lastHttpStatus = $readiness.LastHttpStatus
+        lastHttpErrorCode = $readiness.LastHttpErrorCode
+        firstHttpAttemptAt = $readiness.FirstHttpAttemptAt
+        lastHttpAttemptAt = $readiness.LastHttpAttemptAt
+        httpReadyAt = $readiness.HttpReadyAt
         processDetectionDurationMilliseconds = $readiness.ProcessDetectionDurationMilliseconds
         cdpReadinessDurationMilliseconds = $readiness.CdpReadinessDurationMilliseconds
         listenerSeenAfterProcessMilliseconds = $readiness.ListenerSeenAfterProcessMilliseconds

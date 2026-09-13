@@ -68,7 +68,48 @@
           <section id="palette-advanced">
             <h3>UI palette overrides</h3>
             <p>Manual Codex UI colors, not wallpaper edits. Disabled items use Universal automatic values.</p>
-            <p>Enable only values you want to override. Alpha 0–1. Unchecked items use Universal defaults. Low-contrast combinations are possible.</p>
+            <p>Enable only values you want to override. Opacity is shown as a percentage; saved values remain 0–1. Unchecked items use Universal defaults. Low-contrast combinations are possible.</p>
+            <section class="palette-preview-card" aria-labelledby="palette-preview-heading">
+              <div class="palette-preview-heading">
+                <div><h4 id="palette-preview-heading">Codex UI preview</h4><p>Illustrative mock — no Codex window or chat content is used.</p></div>
+                <div class="palette-preview-tools">
+                  <div class="segmented palette-preview-layout" role="group" aria-label="Preview scroll behavior">
+                    <button type="button" data-palette-preview-layout="sticky" aria-pressed="true">Sticky preview</button>
+                    <button type="button" data-palette-preview-layout="normal" aria-pressed="false">Normal preview</button>
+                  </div>
+                  <div class="segmented palette-preview-modes" role="group" aria-label="Palette preview appearance">
+                    <button type="button" data-palette-preview-mode="light">Light</button>
+                    <button type="button" data-palette-preview-mode="dark">Dark</button>
+                  </div>
+                </div>
+              </div>
+              <div id="palette-preview" class="palette-preview">
+                <div class="palette-preview-scrim" data-palette-regions="scrim">
+                  <header class="palette-preview-topbar" data-palette-regions="topbarSurface divider">
+                    <span class="palette-preview-brand" data-palette-regions="foreground">Codex</span>
+                    <span class="palette-preview-muted" data-palette-regions="foregroundMuted">Workspace</span>
+                  </header>
+                  <div class="palette-preview-body">
+                    <aside class="palette-preview-sidebar" data-palette-regions="sidebarSurface divider">
+                      <span class="palette-preview-muted" data-palette-regions="foregroundMuted">Tasks</span>
+                      <span class="palette-preview-selected" data-palette-regions="accent chromeSurface foreground">Selected task</span>
+                      <span data-palette-regions="foreground">Another task</span>
+                    </aside>
+                    <main class="palette-preview-main" data-palette-regions="mainContentSurface">
+                      <div class="palette-preview-top-fade" data-palette-regions="topFade"></div>
+                      <strong data-palette-regions="foreground">Primary text</strong>
+                      <span class="palette-preview-muted" data-palette-regions="foregroundMuted">Muted supporting text</span>
+                      <div class="palette-preview-composer" data-palette-regions="chromeSurface divider">
+                        <span class="palette-preview-muted" data-palette-regions="foregroundMuted">Ask Codex…</span>
+                        <button type="button" tabindex="-1" data-palette-regions="accent">Send</button>
+                      </div>
+                      <div class="palette-preview-bottom-fade" data-palette-regions="bottomFade"></div>
+                    </main>
+                  </div>
+                </div>
+              </div>
+              <p class="palette-preview-hint">Hover or select a token to highlight its UI region.</p>
+            </section>
             <div id="palette-fields"></div>
           </section>
           <p>Save keeps this policy pending. Apply changes makes it active.</p>
@@ -176,6 +217,7 @@
       <footer id="status-bar" class="status-bar" aria-live="polite">
         <button id="about-open" class="about-entry" type="button">About</button>
         <button id="support-open" class="about-entry" data-support-only hidden type="button">Diagnostics / Support</button>
+        <span id="build-identity" class="build-identity" data-i18n-skip></span>
         <span id="status-dot" class="status-dot"></span>
         <span id="status-message">Loading Theme Packages…</span>
         <span id="active-summary" class="active-summary"></span>
@@ -184,12 +226,15 @@
     <dialog id="about-dialog" aria-labelledby="about-heading">
       <h2 id="about-heading">About Theme Manager</h2>
       <p id="about-version"></p>
+      <p id="about-build"></p>
+      <p id="about-commit"></p>
       <p>Author: TREe191</p>
       <p id="about-project" data-i18n-skip></p>
       <button id="about-close" class="secondary-button" type="button">Done</button>
     </dialog>
     <dialog id="support-dialog" aria-labelledby="support-heading">
       <h2 id="support-heading">Diagnostics / Support</h2>
+      <p id="support-build"></p>
       <p>Only startup and application diagnostics are included. Chat and account content are not collected.</p>
       <p>Exports only the latest startup session. Raw logs and full paths are excluded.</p>
       <p id="support-result" role="status"></p>

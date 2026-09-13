@@ -25,5 +25,5 @@ test("PowerShell 5.1 CDP readiness state machine passes offline scenarios", { sk
     windowsHide: true,
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /RESULT passed=13 failed=0/);
+  assert.match(result.stdout, /RESULT passed=16 failed=0/);
 });

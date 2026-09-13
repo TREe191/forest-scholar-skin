@@ -9,6 +9,9 @@ import { createEditorExitGuard } from './components/editor-exit-guard.mjs';
 import {editorLayoutConfig} from '../shared/wallpaper-layout.mjs';
 import {beginEditorSettings,changeEditorPolicy,policyLabel,themeSettingsAction,saveUnifiedDraft} from './components/editor-settings.mjs';
 import { installUiPreferences } from './ui-preferences.mjs';
+import {launchFailureMessage} from './components/launch-failure.mjs';
+import {buildModeLabel} from '../shared/build-identity.mjs';
+import {PALETTE_TOKEN_DESCRIPTIONS,UNIVERSAL_PREVIEW_FALLBACKS,alphaToPercent,percentToAlpha,renderPalettePreview,renderPalettePreviewLayout} from './components/palette-preview.mjs';
 
 const api = window.themeManager;
 installUiPreferences(document,api);
@@ -58,6 +61,7 @@ const state = {
   previewVariant: "light",
   skinAdaptation: "follow-codex",
   appliedSkinAdaptation: "follow-codex",
+  supportDiagnostics: false,
   operation: "loading",
   statusTone: "busy",
   statusMessage: "Loading Theme Packages…",
@@ -154,10 +158,16 @@ function acceptBootstrap(result, { preserveSelection = false } = {}) {
   if (!result?.ok) throw new Error(result?.error || "Theme Manager state could not be loaded.");
   if(result.runtimeInfo){
     const info=result.runtimeInfo;
+    const modeLabel=buildModeLabel(info.buildMode??info.mode),shortCommit=info.shortCommit??'unavailable';
+    state.supportDiagnostics=Boolean(info.supportDiagnostics);
     for(const element of document.querySelectorAll('[data-developer-only]'))element.hidden=!info.developerControls;
     for(const element of document.querySelectorAll('[data-support-only]'))element.hidden=!info.supportDiagnostics;
     document.querySelector('#about-open').textContent=`v${info.version} · About`;
-    document.querySelector('#about-version').textContent=`v${info.version} · ${info.mode}`;
+    document.querySelector('#about-version').textContent=`Application version: ${info.version}`;
+    document.querySelector('#about-build').textContent=`Build mode: ${modeLabel}`;
+    document.querySelector('#about-commit').textContent=`Git commit: ${shortCommit}`;
+    document.querySelector('#support-build').textContent=`${info.version} · ${modeLabel} · ${shortCommit}`;
+    document.querySelector('#build-identity').textContent=`${modeLabel} · ${shortCommit}`;
     document.querySelector('#about-project').textContent=info.github;
   }
   state.themes = Array.isArray(result.themes) ? result.themes : [];
@@ -188,13 +198,13 @@ async function bootstrap() {
   render();
 }
 
-async function runOperation(name, operation, successMessage) {
+async function runOperation(name, operation, successMessage, failureMessage) {
   state.operation = name;
   setStatus("busy", `${successMessage.replace(/\.$/, "")}…`);
   render();
   try {
     const result = await operation();
-    if (!result?.ok) throw new Error(result?.error || `${successMessage} failed.`);
+    if (!result?.ok) throw new Error(failureMessage?.(result) || result?.error || `${successMessage} failed.`);
     state.operation = "idle";
     setStatus("ready", successMessage);
     return result;
@@ -216,12 +226,24 @@ document.querySelector('#about-open').addEventListener('click',()=>document.quer
 document.querySelector('#about-close').addEventListener('click',()=>document.querySelector('#about-dialog').close());
 document.querySelector('#support-open').addEventListener('click',()=>document.querySelector('#support-dialog').showModal());
 document.querySelector('#support-close').addEventListener('click',()=>document.querySelector('#support-dialog').close());
-document.querySelector('#support-export').addEventListener('click',async event=>{
-  const button=event.currentTarget,result=document.querySelector('#support-result');button.disabled=true;
+async function exportDiagnostics(button=document.querySelector('#support-export')){
+  const result=document.querySelector('#support-result');button.disabled=true;
   try{const reply=await api.exportDiagnostics();result.textContent=reply.ok?(reply.canceled?'Export canceled.':'Diagnostics exported.'):'Diagnostics export failed. Original logs were not changed.';}
   catch{result.textContent='Diagnostics export failed. Original logs were not changed.';}
   finally{button.disabled=false;}
-});
+}
+document.querySelector('#support-export').addEventListener('click',event=>exportDiagnostics(event.currentTarget));
+
+function showLaunchFailure(result){
+  const message=launchFailureMessage(result?.failureStage,result?.error);
+  if(state.supportDiagnostics){
+    const dialog=document.querySelector('#support-dialog');
+    document.querySelector('#support-result').textContent=message;
+    document.querySelector('#support-export').textContent='Report issue';
+    if(!dialog.open)dialog.showModal();
+  }
+  return message;
+}
 
 elements.rescanButton.addEventListener("click", async () => {
   const result = await runOperation("scanning", () => api.rescanThemes(), "Theme Packages rescanned.");
@@ -266,6 +288,7 @@ elements.settings.launchButton.addEventListener("click", () => runOperation(
   "launching",
   () => api.launchCodex(),
   "Codex launch workflow completed.",
+  showLaunchFailure,
 ));
 
 elements.settings.restoreButton.addEventListener("click", () => runOperation(
@@ -302,20 +325,49 @@ for(const button of layoutButtons)button.addEventListener('click',()=>{
   editorModel.layoutMode=button.dataset.wallpaperLayout;setSlots();
 });
 const paletteRows=[];
+const palettePreview=document.querySelector('#palette-preview');
+const palettePreviewCard=document.querySelector('.palette-preview-card');
+const palettePreviewModeButtons=[...document.querySelectorAll('[data-palette-preview-mode]')];
+const palettePreviewLayoutButtons=[...document.querySelectorAll('[data-palette-preview-layout]')];
+let palettePreviewMode='light',palettePreviewLayout='sticky',pinnedPaletteToken=null,hoveredPaletteToken=null;
+function syncPalettePreview(){
+  renderPalettePreview(palettePreview,{palette:getPalette(),mode:palettePreviewMode,highlightedToken:hoveredPaletteToken??pinnedPaletteToken});
+  for(const button of palettePreviewModeButtons)button.setAttribute('aria-pressed',String(button.dataset.palettePreviewMode===palettePreviewMode));
+  palettePreviewLayout=renderPalettePreviewLayout(palettePreviewCard,palettePreviewLayoutButtons,palettePreviewLayout);
+}
+for(const button of palettePreviewModeButtons)button.addEventListener('click',()=>{
+  palettePreviewMode=button.dataset.palettePreviewMode;syncPalettePreview();
+});
+for(const button of palettePreviewLayoutButtons)button.addEventListener('click',()=>{
+  palettePreviewLayout=button.dataset.palettePreviewLayout;syncPalettePreview();
+});
 for(const mode of ['light','dark']){
   const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=mode;group.append(legend);
   for(const token of Object.keys(PALETTE_TOKENS)){
-    const row=document.createElement('label');row.className='palette-row';
+    const row=document.createElement('div');row.className='palette-row';row.tabIndex=0;row.dataset.paletteToken=token;
     const enabled=document.createElement('input');enabled.type='checkbox';
-    const caption=document.createElement('span');caption.textContent=token;
+    enabled.setAttribute('aria-label',`${mode} ${token} override`);
+    const caption=document.createElement('span');caption.className='palette-caption';
+    const tokenName=document.createElement('strong');tokenName.textContent=token;
+    const description=document.createElement('small');description.textContent=PALETTE_TOKEN_DESCRIPTIONS[token];caption.append(tokenName,description);
     const color=document.createElement('input');color.type='color';color.setAttribute('aria-label',`${mode} ${token} color`);
-    const alpha=document.createElement('input');alpha.type='number';alpha.min='0';alpha.max='1';alpha.step='0.01';alpha.value='1';alpha.setAttribute('aria-label',`${mode} ${token} alpha`);
-    enabled.addEventListener('change',()=>{color.disabled=alpha.disabled=!enabled.checked;});
-    row.append(enabled,caption,color,alpha);group.append(row);paletteRows.push({mode,token,enabled,color,alpha});
+    const alphaWrap=document.createElement('span');alphaWrap.className='palette-alpha';
+    const alpha=document.createElement('input');alpha.type='range';alpha.min='0';alpha.max='100';alpha.step='1';alpha.value='100';alpha.setAttribute('aria-label',`${mode} ${token} opacity`);
+    const alphaOutput=document.createElement('output');alphaOutput.textContent='100%';alphaWrap.append(alpha,alphaOutput);
+    const update=()=>{alphaOutput.textContent=`${alpha.value}%`;syncPalettePreview();};
+    enabled.addEventListener('change',()=>{color.disabled=alpha.disabled=!enabled.checked;update();});
+    color.addEventListener('input',update);alpha.addEventListener('input',update);
+    row.addEventListener('pointerenter',()=>{palettePreviewMode=mode;hoveredPaletteToken=token;syncPalettePreview();});
+    row.addEventListener('pointerleave',()=>{hoveredPaletteToken=null;syncPalettePreview();});
+    row.addEventListener('focusin',()=>{palettePreviewMode=mode;hoveredPaletteToken=token;syncPalettePreview();});
+    row.addEventListener('focusout',event=>{if(!row.contains(event.relatedTarget)){hoveredPaletteToken=null;syncPalettePreview();}});
+    row.addEventListener('click',()=>{palettePreviewMode=mode;pinnedPaletteToken=token;syncPalettePreview();});
+    row.append(enabled,caption,color,alphaWrap);group.append(row);paletteRows.push({mode,token,enabled,color,alpha,alphaOutput});
   }document.querySelector('#palette-fields').append(group);
 }
-function setPalette(palette={}){for(const r of paletteRows){const v=palette[r.mode]?.[r.token];r.enabled.checked=!!v;r.color.value=v?.color??'#808080';r.alpha.value=String(v?.alpha??1);r.color.disabled=r.alpha.disabled=!v;}}
-function getPalette(){const p={schemaVersion:1,light:{},dark:{}};for(const r of paletteRows)if(r.enabled.checked)p[r.mode][r.token]={color:r.color.value,alpha:Number(r.alpha.value)};return p;}
+function setPalette(palette={}){for(const r of paletteRows){const v=palette[r.mode]?.[r.token],fallback=UNIVERSAL_PREVIEW_FALLBACKS[r.mode][r.token];r.enabled.checked=!!v;r.color.value=v?.color??fallback.color;r.alpha.value=String(alphaToPercent(v?.alpha??fallback.alpha));r.alphaOutput.textContent=`${r.alpha.value}%`;r.color.disabled=r.alpha.disabled=!v;}syncPalettePreview();}
+function getPalette(){const p={schemaVersion:1,light:{},dark:{}};for(const r of paletteRows)if(r.enabled.checked)p[r.mode][r.token]={color:r.color.value,alpha:percentToAlpha(r.alpha.value)};return p;}
+syncPalettePreview();
 function hasImages(){return slotsFor(editorModel.mode).some(s=>editorModel.images[s]);}
 function setSlots(){
   const current=editorLayoutConfig(editorModel).mode;

@@ -32,39 +32,50 @@ function New-ProcessObservation {
 }
 
 function New-CdpObservation {
-    param([string]$Stage)
+    param([string]$Stage, [int]$ListenerPid = 4000)
     $base = [ordered]@{
         Stage = $Stage
         Ready = $false
         HardFailure = $false
         ListenerSeen = $false
         ListenerPids = @()
+        ListenerOwningPid = $null
+        ListenerOwnerPathMatchesExpected = $null
+        HttpAttempted = $false
         HttpSucceeded = $false
         WebSocketSeen = $false
         BrowserIdentityValid = $false
         HttpFailureType = $null
+        HttpStatus = $null
+        HttpErrorCode = $null
         Identity = $null
     }
     switch ($Stage) {
         'listener-not-seen' {}
         'listener-owner-unavailable' {
-            $base.ListenerSeen = $true; $base.ListenerPids = @(4000)
+            $base.ListenerSeen = $true; $base.ListenerPids = @($ListenerPid); $base.ListenerOwningPid = $ListenerPid
         }
         'http-not-ready' {
-            $base.ListenerSeen = $true; $base.ListenerPids = @(4000); $base.HttpFailureType = 'WebException'
+            $base.ListenerSeen = $true; $base.ListenerPids = @($ListenerPid); $base.ListenerOwningPid = $ListenerPid
+            $base.ListenerOwnerPathMatchesExpected = $true; $base.HttpAttempted = $true; $base.HttpFailureType = 'connection-refused'; $base.HttpErrorCode = 10061
         }
         'browser-websocket-not-seen' {
-            $base.ListenerSeen = $true; $base.ListenerPids = @(4000); $base.HttpSucceeded = $true
+            $base.ListenerSeen = $true; $base.ListenerPids = @($ListenerPid); $base.ListenerOwningPid = $ListenerPid
+            $base.ListenerOwnerPathMatchesExpected = $true; $base.HttpAttempted = $true; $base.HttpSucceeded = $true; $base.HttpFailureType = 'missing-browser-websocket'
         }
         'browser-identity-invalid' {
-            $base.ListenerSeen = $true; $base.ListenerPids = @(4000); $base.HttpSucceeded = $true; $base.WebSocketSeen = $true
+            $base.ListenerSeen = $true; $base.ListenerPids = @($ListenerPid); $base.ListenerOwningPid = $ListenerPid
+            $base.ListenerOwnerPathMatchesExpected = $true; $base.HttpAttempted = $true; $base.HttpSucceeded = $true; $base.WebSocketSeen = $true; $base.HttpFailureType = 'invalid-browser-identity'
         }
         'listener-owner-path-mismatch' {
-            $base.ListenerSeen = $true; $base.ListenerPids = @(9000); $base.HardFailure = $true
+            $base.ListenerSeen = $true; $base.ListenerPids = @(9000); $base.ListenerOwningPid = 9000; $base.ListenerOwnerPathMatchesExpected = $false; $base.HardFailure = $true
         }
         'ready' {
             $base.ListenerSeen = $true
-            $base.ListenerPids = @(4000)
+            $base.ListenerPids = @($ListenerPid)
+            $base.ListenerOwningPid = $ListenerPid
+            $base.ListenerOwnerPathMatchesExpected = $true
+            $base.HttpAttempted = $true
             $base.HttpSucceeded = $true
             $base.WebSocketSeen = $true
             $base.BrowserIdentityValid = $true
@@ -85,7 +96,8 @@ function Invoke-MockedReadiness {
         [string[]]$ProcessStates,
         [string[]]$CdpStages,
         [int]$ProcessTimeoutMilliseconds = 1000,
-        [int]$CdpTimeoutMilliseconds = 1500
+        [int]$CdpTimeoutMilliseconds = 1500,
+        [int]$ListenerPid = 4000
     )
     $state = @{
         Clock = [DateTime]'2026-09-02T00:00:00Z'
@@ -102,7 +114,7 @@ function Invoke-MockedReadiness {
         param($port, $expected)
         $index = [math]::Min($state.CdpIndex, $CdpStages.Count - 1)
         $state.CdpIndex += 1
-        return New-CdpObservation -Stage $CdpStages[$index]
+        return New-CdpObservation -Stage $CdpStages[$index] -ListenerPid $ListenerPid
     }
     $lifecycleProvider = {
         param($activationId, $port, $expected)
@@ -115,11 +127,14 @@ function Invoke-MockedReadiness {
             activationProcessId = $activationId
             activationProcessPresent = $true
             activationProcessHasSelectedPort = $true
-            observedProcessIds = @($activationId)
-            matchingExpectedPathProcessIds = @($activationId)
+            observedProcessIds = @($activationId, $ListenerPid | Sort-Object -Unique)
+            matchingExpectedPathProcessIds = @($activationId, $ListenerPid | Sort-Object -Unique)
             portBearingProcessIds = @($activationId)
-            listenerPids = @($activationId)
-            processes = @()
+            listenerPids = @($ListenerPid)
+            processes = @(
+                [pscustomobject]@{ processId = $activationId; parentProcessId = 0 },
+                $(if ($ListenerPid -ne $activationId) { [pscustomobject]@{ processId = $ListenerPid; parentProcessId = $activationId } })
+            )
         }
     }
     $clockProvider = { $state.Clock }
@@ -191,6 +206,53 @@ Invoke-Test 'HTTP timeout is classified precisely' {
     $result = Invoke-MockedReadiness -ProcessStates @('ready') -CdpStages @('http-not-ready') -CdpTimeoutMilliseconds 1000
     Assert-True (-not $result.Succeeded) 'Expected HTTP timeout to fail.'
     Assert-True ($result.FailureStage -eq 'cdp-http-readiness') 'HTTP timeout was misclassified.'
+    Assert-True ($result.ListenerOwningPid -eq 4000) 'Listener owner PID was not retained.'
+    Assert-True ($result.ListenerOwnerIsActivationPid -eq $true) 'Activation ownership was not identified.'
+    Assert-True ($result.ListenerOwnerPathMatchesExpected -eq $true) 'Listener owner path evidence was not retained.'
+    Assert-True ($result.ListenerOwnerRelation -eq 'activation') 'Activation relationship was not classified.'
+    Assert-True ($result.HttpAttemptCount -gt 0) 'HTTP attempts were not counted.'
+    Assert-True ($null -ne $result.FirstHttpAttemptAt -and $null -ne $result.LastHttpAttemptAt) 'HTTP attempt timestamps were not retained.'
+}
+
+Invoke-Test 'Listener owned by a valid Codex child records ancestry' {
+    $result = Invoke-MockedReadiness -ProcessStates @('ready') -CdpStages @('http-not-ready') -CdpTimeoutMilliseconds 1000 -ListenerPid 4100
+    Assert-True (-not $result.Succeeded) 'Expected child-owned HTTP readiness to time out.'
+    Assert-True ($result.ListenerOwningPid -eq 4100) 'Child listener PID was not retained.'
+    Assert-True ($result.ListenerOwnerIsActivationPid -eq $false) 'Child listener was incorrectly marked as activation PID.'
+    Assert-True ($result.ListenerOwnerPathMatchesExpected -eq $true) 'Valid child path evidence was not retained.'
+    Assert-True ($result.ListenerOwnerRelation -eq 'child') 'Child ancestry was not classified.'
+}
+
+function Invoke-HttpObservation {
+    param([scriptblock]$HttpProvider)
+    return Get-FssCdpReadinessObservation -Port 55000 -ExpectedExecutable $expectedExecutable `
+        -ListenerProvider { @([pscustomobject]@{ LocalAddress = '127.0.0.1'; OwningProcess = 4000 }) } `
+        -IdentityProvider { [pscustomobject]@{ Path = $expectedExecutable } } `
+        -HttpProvider $HttpProvider
+}
+
+Invoke-Test 'HTTP diagnostics classify refused reset timeout and transport errors' {
+    $refused = Invoke-HttpObservation { throw [System.Exception]::new('refused',[System.Net.Sockets.SocketException]::new(10061)) }
+    $reset = Invoke-HttpObservation { throw [System.Exception]::new('reset',[System.Net.Sockets.SocketException]::new(10054)) }
+    $timeout = Invoke-HttpObservation { throw [System.TimeoutException]::new('timeout') }
+    $transport = Invoke-HttpObservation { throw [System.IO.IOException]::new('transport') }
+    Assert-True ($refused.HttpFailureType -eq 'connection-refused' -and $refused.HttpErrorCode -eq 10061) "Connection refused was not classified: $($refused.HttpFailureType) / $($refused.HttpErrorCode)."
+    Assert-True ($reset.HttpFailureType -eq 'connection-reset' -and $reset.HttpErrorCode -eq 10054) "Connection reset was not classified: $($reset.HttpFailureType) / $($reset.HttpErrorCode)."
+    Assert-True ($timeout.HttpFailureType -eq 'timeout') 'Timeout was not classified.'
+    Assert-True ($transport.HttpFailureType -eq 'socket-transport-error') 'Transport failure was not classified.'
+}
+
+Invoke-Test 'HTTP diagnostics classify non-2xx malformed JSON missing WebSocket and unknown' {
+    $non2xx = Get-FssHttpFailureDiagnostic -Failure ([pscustomobject]@{ HttpStatus = 503 })
+    $malformed = Invoke-HttpObservation { 'not-json' }
+    $malformedThrown = Invoke-HttpObservation { throw [System.ArgumentException]::new('Invalid JSON primitive') }
+    $missing = Invoke-HttpObservation { [pscustomobject]@{ Browser = 'Chrome/Test' } }
+    $unknown = Invoke-HttpObservation { throw [System.Exception]::new('unknown') }
+    Assert-True ($non2xx.FailureType -eq 'http-non-2xx' -and $non2xx.HttpStatus -eq 503) 'Non-2xx was not classified.'
+    Assert-True ($malformed.HttpFailureType -eq 'malformed-json') 'Malformed JSON was not classified.'
+    Assert-True ($malformedThrown.HttpFailureType -eq 'malformed-json') 'Thrown JSON parser failure was not classified.'
+    Assert-True ($missing.HttpFailureType -eq 'missing-browser-websocket') 'Missing Browser WebSocket was not classified.'
+    Assert-True ($unknown.HttpFailureType -eq 'unknown') 'Unknown failure fallback was not retained.'
 }
 
 Invoke-Test 'Browser endpoint timeout is classified precisely' {

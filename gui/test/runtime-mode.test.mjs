@@ -58,6 +58,8 @@ test('About attribution/version and build scripts are single-source; developer U
  const html=await readFile(new URL('../src/renderer/index.html',import.meta.url),'utf8');
  assert.match(html,/id="rescan-button" data-developer-only hidden/);
  const main=await readFile(new URL('../src/main/index.mjs',import.meta.url),'utf8');
- assert.match(main,/applicationInfo\(app.getVersion\(\),runtimeMode\)/);
+ assert.match(main,/applicationInfo\(app.getVersion\(\),runtimeMode,buildIdentity\)/);
  assert.match(main,/devTools:runtimeMode==='development'/);
+ assert.match(html,/id="build-identity" class="build-identity"/);
+ for(const id of ['about-version','about-build','about-commit','support-build'])assert.ok(html.includes(`id="${id}"`));
 });

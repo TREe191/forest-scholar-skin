@@ -705,13 +705,105 @@ function Get-FssCodexLifecycleObservation {
     }
 }
 
+function Get-FssHttpFailureDiagnostic {
+    param([Parameter(Mandatory = $true)]$Failure)
+
+    $httpStatus = $null
+    $safeErrorCode = $null
+    $socketFailure = $false
+    $timeoutFailure = $false
+    $jsonParseFailure = $false
+    $webStatus = $null
+    $pending = New-Object System.Collections.Queue
+    $pending.Enqueue($Failure)
+    $inspected = 0
+    while ($pending.Count -gt 0 -and $inspected -lt 32) {
+        $current = $pending.Dequeue()
+        $inspected += 1
+        foreach ($name in @('HttpStatus', 'StatusCode')) {
+            $property = $current.PSObject.Properties[$name]
+            if ($null -ne $property -and $null -ne $property.Value) {
+                try { $httpStatus = [int]$property.Value } catch {}
+            }
+        }
+        $responseProperty = $current.PSObject.Properties['Response']
+        if ($null -ne $responseProperty -and $null -ne $responseProperty.Value) {
+            $statusProperty = $responseProperty.Value.PSObject.Properties['StatusCode']
+            if ($null -ne $statusProperty -and $null -ne $statusProperty.Value) {
+                try { $httpStatus = [int]$statusProperty.Value } catch {}
+            }
+        }
+        foreach ($name in @('NativeErrorCode', 'ErrorCode', 'SocketErrorCode')) {
+            $property = $current.PSObject.Properties[$name]
+            if ($null -eq $property -or $null -eq $property.Value) { continue }
+            $candidate = "$($property.Value)"
+            if ($candidate -match '^(10054|10060|10061)$') { $safeErrorCode = [int]$candidate }
+            elseif ($null -eq $safeErrorCode -and $candidate -match '^(?i:ECONNRESET|ETIMEDOUT|ECONNREFUSED|ConnectionReset|TimedOut|ConnectionRefused)$') { $safeErrorCode = $candidate }
+        }
+        $statusProperty = $current.PSObject.Properties['Status']
+        if ($null -ne $statusProperty -and $null -ne $statusProperty.Value) { $webStatus = "$($statusProperty.Value)" }
+        $typeName = $current.GetType().FullName
+        if ($typeName -match 'SocketException|WebException|HttpRequestException|IOException') { $socketFailure = $true }
+        if ($typeName -match 'TimeoutException|TaskCanceledException|OperationCanceledException') { $timeoutFailure = $true }
+        if ($typeName -match 'JsonException|JsonReaderException|JsonSerializationException') { $jsonParseFailure = $true }
+        $messageProperty = $current.PSObject.Properties['Message']
+        if ($null -ne $messageProperty -and "$($messageProperty.Value)" -match '(?i)(invalid|malformed|unexpected).{0,24}(json|javascript object notation)|(json|javascript object notation).{0,24}(parse|deserializ|invalid|malformed)') {
+            $jsonParseFailure = $true
+        }
+        foreach ($name in @('Exception','InnerException','ErrorRecord','TargetObject')) {
+            $property = $current.PSObject.Properties[$name]
+            if ($null -ne $property -and $null -ne $property.Value -and -not [object]::ReferenceEquals($property.Value,$current)) {
+                $pending.Enqueue($property.Value)
+            }
+        }
+    }
+
+    $failureType = 'unknown'
+    if ($null -ne $httpStatus -and ($httpStatus -lt 200 -or $httpStatus -ge 300)) { $failureType = 'http-non-2xx' }
+    elseif ($safeErrorCode -in @(10061, 'ECONNREFUSED', 'ConnectionRefused')) { $failureType = 'connection-refused' }
+    elseif ($safeErrorCode -in @(10054, 'ECONNRESET', 'ConnectionReset')) { $failureType = 'connection-reset' }
+    elseif ($safeErrorCode -in @(10060, 'ETIMEDOUT', 'TimedOut') -or $timeoutFailure -or $webStatus -eq 'Timeout') { $failureType = 'timeout' }
+    elseif ($jsonParseFailure) { $failureType = 'malformed-json' }
+    elseif ($socketFailure -or $webStatus -in @('ConnectFailure','ConnectionClosed','ReceiveFailure','SendFailure','KeepAliveFailure','PipelineFailure')) { $failureType = 'socket-transport-error' }
+
+    return [pscustomobject]@{ FailureType = $failureType; HttpStatus = $httpStatus; ErrorCode = $safeErrorCode }
+}
+
+function Get-FssListenerOwnerRelation {
+    param(
+        [Nullable[int]]$ListenerOwningPid,
+        [Parameter(Mandatory = $true)][int]$ActivationProcessId,
+        [object[]]$Processes
+    )
+    if ($null -eq $ListenerOwningPid) { return 'unknown' }
+    if ([int]$ListenerOwningPid -eq $ActivationProcessId) { return 'activation' }
+    $byId = @{}
+    foreach ($process in @($Processes)) { $byId[[int]$process.processId] = $process }
+    $current = [int]$ListenerOwningPid
+    for ($depth = 0; $depth -lt 32; $depth += 1) {
+        if (-not $byId.ContainsKey($current)) { return 'unknown' }
+        $parent = $byId[$current].parentProcessId
+        if ($null -eq $parent -or [int]$parent -le 0) { return 'unrelated' }
+        if ([int]$parent -eq $ActivationProcessId) { return $(if ($depth -eq 0) { 'child' } else { 'descendant' }) }
+        $current = [int]$parent
+    }
+    return 'unknown'
+}
+
 function Get-FssCdpReadinessObservation {
     param(
         [Parameter(Mandatory = $true)][int]$Port,
-        [Parameter(Mandatory = $true)][string]$ExpectedExecutable
+        [Parameter(Mandatory = $true)][string]$ExpectedExecutable,
+        [scriptblock]$ListenerProvider,
+        [scriptblock]$IdentityProvider,
+        [scriptblock]$HttpProvider
     )
 
-    $listeners = @(Get-FssPortListeners -Port $Port)
+    if ($null -eq $ListenerProvider) { $ListenerProvider = { param($selectedPort) @(Get-FssPortListeners -Port $selectedPort) } }
+    if ($null -eq $IdentityProvider) { $IdentityProvider = { param($processId) Get-FssProcessIdentity -ProcessId $processId } }
+    if ($null -eq $HttpProvider) { $HttpProvider = { param($selectedPort) Invoke-RestMethod -Uri "http://127.0.0.1:$selectedPort/json/version" -TimeoutSec 2 -MaximumRedirection 0 -ErrorAction Stop } }
+
+    $listeners = @(& $ListenerProvider $Port)
     if ($listeners.Count -eq 0) {
         return [pscustomobject]@{
             Stage = 'listener-not-seen'
@@ -719,10 +811,15 @@ function Get-FssCdpReadinessObservation {
             HardFailure = $false
             ListenerSeen = $false
             ListenerPids = @()
+            ListenerOwningPid = $null
+            ListenerOwnerPathMatchesExpected = $null
+            HttpAttempted = $false
             HttpSucceeded = $false
             WebSocketSeen = $false
             BrowserIdentityValid = $false
             HttpFailureType = $null
+            HttpStatus = $null
+            HttpErrorCode = $null
             Identity = $null
         }
     }
@@ -735,15 +832,20 @@ function Get-FssCdpReadinessObservation {
             HardFailure = $true
             ListenerSeen = $true
             ListenerPids = $listenerPids
+            ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+            ListenerOwnerPathMatchesExpected = $null
+            HttpAttempted = $false
             HttpSucceeded = $false
             WebSocketSeen = $false
             BrowserIdentityValid = $false
             HttpFailureType = $null
+            HttpStatus = $null
+            HttpErrorCode = $null
             Identity = $null
         }
     }
     foreach ($listener in $listeners) {
-        $listenerIdentity = Get-FssProcessIdentity -ProcessId ([int]$listener.OwningProcess)
+        $listenerIdentity = & $IdentityProvider ([int]$listener.OwningProcess)
         if ($null -eq $listenerIdentity -or -not $listenerIdentity.Path) {
             return [pscustomobject]@{
                 Stage = 'listener-owner-unavailable'
@@ -751,10 +853,15 @@ function Get-FssCdpReadinessObservation {
                 HardFailure = $false
                 ListenerSeen = $true
                 ListenerPids = $listenerPids
+                ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+                ListenerOwnerPathMatchesExpected = $null
+                HttpAttempted = $false
                 HttpSucceeded = $false
                 WebSocketSeen = $false
                 BrowserIdentityValid = $false
                 HttpFailureType = $null
+                HttpStatus = $null
+                HttpErrorCode = $null
                 Identity = $null
             }
         }
@@ -765,34 +872,61 @@ function Get-FssCdpReadinessObservation {
                 HardFailure = $true
                 ListenerSeen = $true
                 ListenerPids = $listenerPids
+                ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+                ListenerOwnerPathMatchesExpected = $false
+                HttpAttempted = $false
                 HttpSucceeded = $false
                 WebSocketSeen = $false
                 BrowserIdentityValid = $false
                 HttpFailureType = $null
+                HttpStatus = $null
+                HttpErrorCode = $null
                 Identity = $null
             }
         }
     }
 
     try {
-        $version = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/version" -TimeoutSec 2 -MaximumRedirection 0 -ErrorAction Stop
+        $version = & $HttpProvider $Port
     }
     catch {
+        $httpFailure = Get-FssHttpFailureDiagnostic -Failure $_
         return [pscustomobject]@{
             Stage = 'http-not-ready'
             Ready = $false
             HardFailure = $false
             ListenerSeen = $true
             ListenerPids = $listenerPids
+            ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+            ListenerOwnerPathMatchesExpected = $true
+            HttpAttempted = $true
             HttpSucceeded = $false
             WebSocketSeen = $false
             BrowserIdentityValid = $false
-            HttpFailureType = $_.Exception.GetType().Name
+            HttpFailureType = $httpFailure.FailureType
+            HttpStatus = $httpFailure.HttpStatus
+            HttpErrorCode = $httpFailure.ErrorCode
             Identity = $null
         }
     }
 
-    $webSocketUrl = "$($version.webSocketDebuggerUrl)"
+    $malformedJson = $false
+    if ($version -is [string]) {
+        try { $null = $version | ConvertFrom-Json -ErrorAction Stop } catch { $malformedJson = $true }
+    }
+    if ($malformedJson) {
+        return [pscustomobject]@{
+            Stage = 'browser-websocket-not-seen'; Ready = $false; HardFailure = $false
+            ListenerSeen = $true; ListenerPids = $listenerPids
+            ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+            ListenerOwnerPathMatchesExpected = $true; HttpAttempted = $true; HttpSucceeded = $true
+            WebSocketSeen = $false; BrowserIdentityValid = $false
+            HttpFailureType = 'malformed-json'; HttpStatus = $null; HttpErrorCode = $null; Identity = $null
+        }
+    }
+
+    $webSocketProperty = if ($null -ne $version) { $version.PSObject.Properties['webSocketDebuggerUrl'] } else { $null }
+    $webSocketUrl = if ($null -ne $webSocketProperty) { "$($webSocketProperty.Value)" } else { '' }
     if (-not $webSocketUrl) {
         return [pscustomobject]@{
             Stage = 'browser-websocket-not-seen'
@@ -800,10 +934,15 @@ function Get-FssCdpReadinessObservation {
             HardFailure = $false
             ListenerSeen = $true
             ListenerPids = $listenerPids
+            ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+            ListenerOwnerPathMatchesExpected = $true
+            HttpAttempted = $true
             HttpSucceeded = $true
             WebSocketSeen = $false
             BrowserIdentityValid = $false
-            HttpFailureType = $null
+            HttpFailureType = 'missing-browser-websocket'
+            HttpStatus = $null
+            HttpErrorCode = $null
             Identity = $null
         }
     }
@@ -814,10 +953,15 @@ function Get-FssCdpReadinessObservation {
             HardFailure = $false
             ListenerSeen = $true
             ListenerPids = $listenerPids
+            ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+            ListenerOwnerPathMatchesExpected = $true
+            HttpAttempted = $true
             HttpSucceeded = $true
             WebSocketSeen = $true
             BrowserIdentityValid = $false
-            HttpFailureType = $null
+            HttpFailureType = 'invalid-browser-websocket'
+            HttpStatus = $null
+            HttpErrorCode = $null
             Identity = $null
         }
     }
@@ -829,10 +973,15 @@ function Get-FssCdpReadinessObservation {
             HardFailure = $false
             ListenerSeen = $true
             ListenerPids = $listenerPids
+            ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+            ListenerOwnerPathMatchesExpected = $true
+            HttpAttempted = $true
             HttpSucceeded = $true
             WebSocketSeen = $true
             BrowserIdentityValid = $false
-            HttpFailureType = $null
+            HttpFailureType = 'invalid-browser-identity'
+            HttpStatus = $null
+            HttpErrorCode = $null
             Identity = $null
         }
     }
@@ -843,10 +992,15 @@ function Get-FssCdpReadinessObservation {
             HardFailure = $true
             ListenerSeen = $true
             ListenerPids = $listenerPids
+            ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+            ListenerOwnerPathMatchesExpected = $true
+            HttpAttempted = $true
             HttpSucceeded = $true
             WebSocketSeen = $true
             BrowserIdentityValid = $false
-            HttpFailureType = $null
+            HttpFailureType = 'listener-ownership-changed'
+            HttpStatus = $null
+            HttpErrorCode = $null
             Identity = $null
         }
     }
@@ -856,10 +1010,15 @@ function Get-FssCdpReadinessObservation {
         HardFailure = $false
         ListenerSeen = $true
         ListenerPids = $listenerPids
+        ListenerOwningPid = if ($listenerPids.Count -eq 1) { $listenerPids[0] } else { $null }
+        ListenerOwnerPathMatchesExpected = $true
+        HttpAttempted = $true
         HttpSucceeded = $true
         WebSocketSeen = $true
         BrowserIdentityValid = $true
         HttpFailureType = $null
+        HttpStatus = $null
+        HttpErrorCode = $null
         Identity = [pscustomobject]@{
             BrowserId = $browserId
             BrowserWebSocketDebuggerUrl = $webSocketUrl
@@ -912,6 +1071,12 @@ function Wait-FssCodexCdpReadiness {
     $processDetectedAt = $null
     $listenerFirstSeenAt = $null
     $httpFirstSuccessAt = $null
+    $httpAttemptCount = 0
+    $firstHttpAttemptAt = $null
+    $lastHttpAttemptAt = $null
+    $lastHttpFailureType = $null
+    $lastHttpStatus = $null
+    $lastHttpErrorCode = $null
     $webSocketFirstSeenAt = $null
     $browserIdentityValidatedAt = $null
     $lastObservation = $null
@@ -1025,6 +1190,11 @@ function Wait-FssCodexCdpReadiness {
     $finish = {
         param([bool]$Succeeded, [string]$FailureStage, [string]$FailureReason, $CdpIdentity, [DateTime]$FinishedAt)
         & $captureLifecycle $FinishedAt $true
+        $listenerOwningPid = if ($null -ne $lastObservation) { $lastObservation.ListenerOwningPid } else { $null }
+        $listenerOwnerRelation = Get-FssListenerOwnerRelation `
+            -ListenerOwningPid $listenerOwningPid `
+            -ActivationProcessId $ProcessId `
+            -Processes $(if ($null -ne $lifecycleState.LastObservation) { @($lifecycleState.LastObservation.processes) } else { @() })
         [pscustomobject]@{
             Succeeded = $Succeeded
             FailureStage = $FailureStage
@@ -1042,6 +1212,17 @@ function Wait-FssCodexCdpReadiness {
             LastObservedStage = if ($null -ne $lastObservation) { "$($lastObservation.Stage)" } else { $null }
             ListenerPids = if ($null -ne $lastObservation -and $null -ne $lastObservation.ListenerPids) { @($lastObservation.ListenerPids) } else { @() }
             HttpFailureType = if ($null -ne $lastObservation) { $lastObservation.HttpFailureType } else { $null }
+            ListenerOwningPid = $listenerOwningPid
+            ListenerOwnerIsActivationPid = if ($null -ne $listenerOwningPid) { [int]$listenerOwningPid -eq $ProcessId } else { $null }
+            ListenerOwnerPathMatchesExpected = if ($null -ne $lastObservation) { $lastObservation.ListenerOwnerPathMatchesExpected } else { $null }
+            ListenerOwnerRelation = $listenerOwnerRelation
+            HttpAttemptCount = $httpAttemptCount
+            LastHttpFailureType = $lastHttpFailureType
+            LastHttpStatus = $lastHttpStatus
+            LastHttpErrorCode = $lastHttpErrorCode
+            FirstHttpAttemptAt = if ($null -ne $firstHttpAttemptAt) { $firstHttpAttemptAt.ToString('o') } else { $null }
+            LastHttpAttemptAt = if ($null -ne $lastHttpAttemptAt) { $lastHttpAttemptAt.ToString('o') } else { $null }
+            HttpReadyAt = if ($null -ne $httpFirstSuccessAt) { $httpFirstSuccessAt.ToString('o') } else { $null }
             StartedAt = $startedAt.ToString('o')
             FinishedAt = $FinishedAt.ToString('o')
             TotalDurationMilliseconds = [math]::Round(($FinishedAt - $startedAt).TotalMilliseconds, 3)
@@ -1092,10 +1273,19 @@ function Wait-FssCodexCdpReadiness {
         }
 
         $readinessAttempts += 1
+        $httpAttemptStartedAt = $now
         $lastObservation = & $CdpObservationProvider $Port $ExpectedExecutable
         $now = & $UtcNowProvider
         & $addTransition "cdp-$($lastObservation.Stage)" $now
         if ([bool]$lastObservation.ListenerSeen -and $null -eq $listenerFirstSeenAt) { $listenerFirstSeenAt = $now }
+        if ([bool]$lastObservation.HttpAttempted) {
+            $httpAttemptCount += 1
+            if ($null -eq $firstHttpAttemptAt) { $firstHttpAttemptAt = $httpAttemptStartedAt }
+            $lastHttpAttemptAt = $now
+            if ($null -ne $lastObservation.HttpFailureType) { $lastHttpFailureType = "$($lastObservation.HttpFailureType)" }
+            if ($null -ne $lastObservation.HttpStatus) { $lastHttpStatus = $lastObservation.HttpStatus }
+            if ($null -ne $lastObservation.HttpErrorCode) { $lastHttpErrorCode = $lastObservation.HttpErrorCode }
+        }
         if ([bool]$lastObservation.HttpSucceeded -and $null -eq $httpFirstSuccessAt) { $httpFirstSuccessAt = $now }
         if ([bool]$lastObservation.WebSocketSeen -and $null -eq $webSocketFirstSeenAt) { $webSocketFirstSeenAt = $now }
         if ([bool]$lastObservation.BrowserIdentityValid -and $null -eq $browserIdentityValidatedAt) { $browserIdentityValidatedAt = $now }

@@ -2,11 +2,15 @@
 // are data, not translation keys. Unknown technical errors retain their details.
 export const zh = Object.freeze({
   'Diagnostics / Support':'诊断 / 支持','Export diagnostics':'导出诊断',
+  'Report issue':'报告问题',
+  'Codex is still running. Fully exit Codex, wait for its background processes to end, then try again.':'检测到 Codex 仍在运行。请完全退出 Codex，并等待后台进程结束后重试。',
+  'Codex started, but the debugging connection did not finish getting ready. Fully exit Codex and try again; if the problem continues, export diagnostics.':'Codex 已启动，但调试连接未准备完成。请完全退出 Codex 后重试；如果问题持续，请导出诊断信息。',
   'Only startup and application diagnostics are included. Chat and account content are not collected.':'诊断仅包含启动和应用日志信息，不收集聊天或账号内容。',
   'Exports only the latest startup session. Raw logs and full paths are excluded.':'仅导出最近一次启动；不包含原始日志和完整路径。',
   'Export canceled.':'已取消导出。','Diagnostics exported.':'诊断包已导出。',
   'Diagnostics export failed. Original logs were not changed.':'诊断导出失败，原日志未被修改。',
   'About':'关于','About Theme Manager':'关于主题管理器','Author: TREe191':'作者：TREe191',
+  'Application version:':'应用版本：','Build mode:':'构建模式：','Git commit:':'Git 提交：',
   'Theme settings…':'主题设置…','Advanced settings':'高级设置','Back to theme':'返回主题',
   'UI palette overrides':'UI 配色覆盖','Palette: Custom theme CSS':'配色：自定义主题 CSS',
   'Palette: manual overrides enabled':'配色：已启用手动覆盖','Palette: Universal automatic':'配色：Universal 自动适配',
@@ -58,7 +62,7 @@ export const zh = Object.freeze({
   'Switching modes retains your images while this editor is open. Saving uses only the displayed mode; hidden selections are not saved.':'编辑期间切换模式会保留已选图片。保存仅使用当前模式，隐藏的图片选择不会保存。',
   'With two wallpapers, an empty side uses the other image. Universal remains automatic unless a palette item is enabled.':'双图模式下，未设置的一侧使用另一张图片。未启用配色覆盖时保持通用自动适配。',
   'This copy retains its Custom theme CSS and layout. You can edit its name and wallpapers; Universal palette overrides are unavailable.':'此副本保留自定义 CSS 与布局。可编辑名称和壁纸，不支持通用配色覆盖。',
-  'Enable only values you want to override. Alpha 0–1. Unchecked items use Universal defaults. Low-contrast combinations are possible.':'仅启用需要覆盖的项目。透明度为 0–1；未勾选项使用通用默认值。自定义组合可能导致对比度不足。',
+  'Enable only values you want to override. Opacity is shown as a percentage; saved values remain 0–1. Unchecked items use Universal defaults. Low-contrast combinations are possible.':'仅启用需要覆盖的项目。透明度以百分比显示，保存值仍为 0–1；未勾选项使用 Universal 默认值。自定义组合可能导致对比度不足。',
   'PNG is copied unchanged; JPG is converted to a PNG copy. Original files are never modified.':'PNG 原样复制；JPG 转为 PNG 副本。不会修改原始文件。',
   'Up to 20 MB / 8 million pixels. Universal adaptation; full-image contain layout.':'最大 20 MB / 800 万像素。通用适配；默认完整显示图片。',
   'Ready.':'就绪。','Loading Theme Packages…':'正在加载主题包…',
@@ -93,6 +97,14 @@ export const zh = Object.freeze({
   'sidebarSurface':'侧栏底色','mainContentSurface':'正文底色','chromeSurface':'控件底色',
   'topbarSurface':'顶栏底色','divider':'分隔线','scrim':'背景遮罩','topFade':'顶部渐变','bottomFade':'底部渐变',
   'light':'浅色','dark':'深色',
+  'Codex UI preview':'Codex 界面预览','Illustrative mock — no Codex window or chat content is used.':'说明性模拟界面——不会使用 Codex 窗口或聊天内容。',
+  'Palette preview appearance':'配色预览外观','Hover or select a token to highlight its UI region.':'悬停或选择 token 可高亮其对应界面区域。',
+  'Preview scroll behavior':'预览滚动方式','Sticky preview':'固定预览','Normal preview':'普通预览',
+  'Buttons and selected states':'按钮和选中状态','Primary text and labels':'主要文字和标签','Secondary and muted text':'次级和弱化文字',
+  'Sidebar background':'侧栏背景','Conversation background':'对话区背景','Composer and floating panels':'输入框和浮动面板',
+  'Topbar background':'顶栏背景','Sidebar and panel dividers':'侧栏和面板分隔线','Background dimming overlay':'背景暗化遮罩',
+  'Top edge fade':'顶部边缘渐变','Composer-area bottom fade':'输入区底部渐变','Tasks':'任务','Selected task':'已选任务',
+  'Another task':'其他任务','Primary text':'主要文字','Muted supporting text':'弱化辅助文字','Workspace':'工作区','Send':'发送','Ask Codex…':'询问 Codex…',
 });
 export function translate(text,language='en'){
   if(language!=='zh')return text;
@@ -100,6 +112,10 @@ export function translate(text,language='en'){
   if(text.endsWith('…') && zh[text.slice(0,-1)+'.'])return zh[text.slice(0,-1)+'.'].replace(/。$/,'…');
   const rules=[
     [/^(v[\d.]+) · About$/,(_,v)=>v+' · 关于'],
+    [/^Application version: (.*)$/,(_,v)=>'应用版本：'+v],
+    [/^Build mode: (.*)$/,(_,v)=>'构建模式：'+v],
+    [/^Git commit: (.*)$/,(_,v)=>'Git 提交：'+v],
+    [/^(light|dark) (accent|foreground|foregroundMuted|sidebarSurface|mainContentSurface|chromeSurface|topbarSurface|divider|scrim|topFade|bottomFade) (override|color|opacity)$/,(_,m,t,k)=>`${translate(m,language)} ${translate(t,language)} ${{override:'覆盖开关',color:'颜色',opacity:'透明度'}[k]}`],
     [/^(v[\d.]+) · production$/,(_,v)=>v+' · 发行版'],
     [/^Adaptation: (.*)$/,(_,v)=>'适配：'+translate(v,language)],
     [/^Active: (.*) · (Follow Codex|Force light skin|Force dark skin)$/,(_,n,v)=>'已应用：'+n+' · '+translate(v,language)],

@@ -41,7 +41,9 @@ test('System follows current OS signal; explicit modes ignore that signal',()=>{
 test('shared i18n covers core UI and preserves inserted user names',()=>{
   for(const key of ['Themes','Preview','Apply changes','Launch Codex','Restore Codex','Advanced adaptation',
     'Create Theme / Add Wallpaper','Edit Theme','Duplicate','Rename','Delete theme','Changes not applied',
-    'No valid theme selected','Settings could not be saved.']){
+    'No valid theme selected','Settings could not be saved.','Codex UI preview','Illustrative mock — no Codex window or chat content is used.',
+    'Hover or select a token to highlight its UI region.','Buttons and selected states','Composer and floating panels',
+    'Preview scroll behavior','Sticky preview','Normal preview']){
     assert.ok(zh[key]);assert.notEqual(translate(key,'zh'),key);assert.equal(translate(key,'en'),key);
   }
   assert.equal(translate('Delete “My Theme / 我的主题”？','en'),'Delete “My Theme / 我的主题”？');

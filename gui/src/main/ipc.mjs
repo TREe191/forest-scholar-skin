@@ -4,7 +4,10 @@ import { validateThemeName } from './services/theme-creator.mjs';
 function publicError(error) {
   const message = (error instanceof Error ? error.message : "The operation failed.")
     .replace(/(?:[A-Za-z]:[\\/]|\\\\)[^\r\n"']+/g, "<local-path>");
-  return { ok: false, error: message.slice(0, 400) };
+  const failureStage = typeof error?.failureStage === 'string' && /^[a-z0-9-]{1,80}$/.test(error.failureStage)
+    ? error.failureStage
+    : undefined;
+  return { ok: false, error: message.slice(0, 400), ...(failureStage ? {failureStage} : {}) };
 }
 
 function authorize(event, authorizedWebContentsId) {
