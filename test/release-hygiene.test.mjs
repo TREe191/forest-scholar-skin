@@ -35,8 +35,32 @@ test("Git includes formal tests but excludes diagnostic launchers and runtime", 
     const result = spawnSync("git", ["check-ignore", "--no-index", `test/${name}`], { cwd: root, encoding: "utf8", windowsHide: true });
     assert.equal(result.status, 1, `${name} must not be ignored: ${result.stdout} ${result.stderr}`);
   }
-  for (const ignored of ["test/Enable-BackgroundProbe-A.cmd", "runtime/history/example/session.json", "gui/test/.tmp/example"]) {
+  for (const ignored of ["test/Enable-BackgroundProbe-A.cmd", "runtime/history/example/session.json", "runtime/preserved/example/session.json", "gui/test/.tmp/example",
+    "themes/user-example/theme.json", "theme-manager-diagnostics-1.0.0-beta.1-example.zip", "local-archive.zip"]) {
     const result = spawnSync("git", ["check-ignore", "--no-index", ignored], { cwd: root, encoding: "utf8", windowsHide: true });
     assert.equal(result.status, 0, `${ignored} must remain ignored: ${result.stderr}`);
   }
+});
+
+test("release tree excludes local state, user themes, diagnostics and unrelated root archives", async () => {
+  const tracked = spawnSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", windowsHide: true });
+  assert.equal(tracked.status, 0, tracked.stderr);
+  const files = tracked.stdout.split("\0").filter(Boolean).map(name=>name.replaceAll("\\","/"));
+  for(const name of files){
+    assert.doesNotMatch(name,/^themes\/user-/i);
+    assert.doesNotMatch(name,/(^|\/)theme-manager-diagnostics-.*\.zip$/i);
+    assert.doesNotMatch(name,/^runtime\//i);
+    assert.doesNotMatch(name,/^[^/]+\.(?:zip|7z|rar|tar|tar\.gz)$/i);
+  }
+  const config=JSON.parse(await fs.readFile(path.join(root,"config/app.json"),"utf8"));
+  assert.deepEqual(config,{schemaVersion:1,activeTheme:"phainon",appearance:"auto"});
+});
+
+test("repository declares code-only MIT scope and separate asset rights", async () => {
+  const license=await fs.readFile(path.join(root,"LICENSE"),"utf8");
+  const assets=await fs.readFile(path.join(root,"ASSETS.md"),"utf8");
+  assert.match(license,/MIT License/);assert.match(license,/applies only to original software code/);
+  assert.match(assets,/does not automatically apply to artwork/);
+  assert.match(assets,/does not claim that those rights\s+belong to TREe191/);
+  assert.match(assets,/not affiliated with or endorsed\s+by OpenAI or HoYoverse/);
 });

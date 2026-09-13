@@ -40,6 +40,8 @@
 .about-entry { background:transparent; border:0; color:var(--muted); cursor:pointer; font-size:11px; white-space:nowrap; }
 #about-dialog { max-width:calc(100vw - 32px); background:var(--panel); color:var(--text); border:1px solid var(--line-strong); border-radius:12px; padding:24px; overflow-wrap:anywhere; }
 #about-dialog::backdrop { background:rgba(0,0,0,.45); }
+.about-brand { color:var(--body-secondary); font-size:12px; }
+.about-disclaimer { max-width:430px; color:var(--muted); font-size:11px; line-height:1.45; }
 .appearance-switch { display:flex; flex-shrink:0; gap:2px; padding:3px; border:1px solid var(--line); border-radius:999px; background:var(--panel-soft); }
 .appearance-switch button { display:grid; place-items:center; width:34px; height:26px; padding:0; border:0; border-radius:999px; color:var(--muted); background:transparent; cursor:pointer; }
 .appearance-switch button[aria-pressed="true"] { color:var(--text); background:var(--panel); box-shadow:0 1px 4px rgba(0,0,0,.12); }

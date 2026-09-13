@@ -1,5 +1,7 @@
 # Codex Skin Theme Manager — pre-v0.4
 
+> This is an unofficial community project and is not affiliated with or endorsed by OpenAI or HoYoverse.
+
 这是 Forest Scholar Theme 的本机 CDP 版本。它通过本次启动的 Codex 所开放的本机 CDP，把所选 Theme Package 的背景和 CSS 加入 renderer；不会修改 WindowsApps、`app.asar`、MSIX 或签名文件。v0.3 使用 Manifest 和通用 Theme Loader，Forest Scholar 是第一套正式主题包。
 
 ## Theme Manager v0.4（开发版）
@@ -157,3 +159,7 @@ E65EA5FE9B0D47424C5727ED83D16D84508FECF9C2CDD6402FB99A857F9CB3AF  themes/forest-
 ## 完整卸载
 
 先运行 `Restore-ForestScholarSkin.cmd`。确认原版 Codex 已重新打开后，关闭它，再删除整个 `forest-scholar-skin` 目录即可。项目没有安装服务、计划任务、注册表项、浏览器扩展或外部运行时。
+
+## License and assets
+
+项目原创软件代码采用 [MIT License](LICENSE)。随附壁纸、主题美术和第三方或同人衍生素材不自动适用 MIT；其权利状态与使用边界见 [ASSETS.md](ASSETS.md)。

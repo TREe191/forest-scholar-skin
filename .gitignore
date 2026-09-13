@@ -2,6 +2,18 @@
 runtime/
 config/.gui-applied.json
 config/.gui-settings.json
+theme-manager-diagnostics-*.zip
+
+# Local user-created themes
+themes/user-*/
+
+# Unrelated root archives. Official release artifacts are generated under
+# ignored gui/out/ and are uploaded separately rather than committed here.
+/*.zip
+/*.7z
+/*.rar
+/*.tar
+/*.tar.gz
 
 # Logs and temporary files
 *.log

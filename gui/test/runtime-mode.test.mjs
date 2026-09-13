@@ -61,5 +61,7 @@ test('About attribution/version and build scripts are single-source; developer U
  assert.match(main,/applicationInfo\(app.getVersion\(\),runtimeMode,buildIdentity\)/);
  assert.match(main,/devTools:runtimeMode==='development'/);
  assert.match(html,/id="build-identity" class="build-identity"/);
+ assert.match(html,/class="about-brand">Created by TREe191</);
+ assert.match(html,/This is an unofficial community project and is not affiliated with or endorsed by OpenAI or HoYoverse\./);
  for(const id of ['about-version','about-build','about-commit','support-build'])assert.ok(html.includes(`id="${id}"`));
 });
