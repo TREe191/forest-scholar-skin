@@ -29,9 +29,12 @@ test('unsupported forced mode and busy state keep original safety restrictions',
   renderSettingsPanel(e,{skinAdaptation:'follow-codex',dirty:false,busy:true,theme:{supportedAppearances:['light','dark']}});
   assert.equal(e.advancedButton.disabled,true);assert.equal(e.restoreButton.disabled,true);
 });
-test('Advanced owns settings/detection/rescan; primary actions stay outside dialog',async()=>{
+test('unified editor owns Advanced policy/palette/rescan; primary actions stay outside',async()=>{
   const html=await readFile(new URL('../src/renderer/index.html',import.meta.url),'utf8');
-  const dialog=html.match(/<dialog id="adaptation-dialog"[\s\S]*?<\/dialog>/)[0];
+  const dialog=html.match(/<dialog id="create-dialog"[\s\S]*?<\/dialog>/)[0];
+  assert.doesNotMatch(html,/<dialog id="adaptation-dialog"/);
+  assert.match(dialog,/<section id="editor-advanced" hidden/);
+  for(const id of ['editor-basic','editor-policy-summary','editor-palette-summary','palette-fields','editor-advanced-back'])assert.ok(dialog.includes('id="'+id+'"'));
   for(const id of ['skin-adaptation-options','compatibility-warning','force-warning','rescan-button'])
     assert.ok(dialog.includes('id="'+id+'"'));
   assert.ok(dialog.includes('Codex appearance'));assert.ok(dialog.includes('Not detected'));

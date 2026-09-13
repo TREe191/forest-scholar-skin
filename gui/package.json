@@ -7,12 +7,18 @@
   "main": "src/main/index.mjs",
   "scripts": {
     "postinstall": "node node_modules/electron/install.js",
-    "start": "electron-forge start",
+    "prepare:node": "node scripts/prepare-node.mjs",
+    "start": "node scripts/forge-mode.mjs start development",
+    "start:production": "node scripts/forge-mode.mjs start production",
+    "start:beta": "node scripts/forge-mode.mjs start beta",
+    "package:beta": "node scripts/forge-mode.mjs package beta",
+    "make:beta": "node scripts/forge-mode.mjs make beta",
     "test": "node --test test/*.test.mjs ../test/*.test.mjs",
-    "package": "electron-forge package",
-    "make": "electron-forge make"
+    "package": "node scripts/forge-mode.mjs package production",
+    "make": "node scripts/forge-mode.mjs make production"
   },
   "devDependencies": {
+    "extract-zip": "2.0.1",
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
     "electron": "44.1.1"

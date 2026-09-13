@@ -1,3 +1,6 @@
+import {bindLayoutPreview} from './layout-preview.mjs';
+import {editorLayoutConfig} from '../../shared/wallpaper-layout.mjs';
+const cleanups=new WeakMap();
 export const slotsFor = mode => mode === 'single' ? ['single'] : ['light', 'dark'];
 export function switchWallpaperMode(model, mode) {
   if (!['single', 'dual'].includes(mode)) throw new Error('Invalid wallpaper mode');
@@ -17,13 +20,18 @@ export function replaceWallpaper(model, slot, image) {
 }
 export function renderWallpaperSlots(container, model, {busy = false, choose, clear, drop}) {
   container.replaceChildren();
+  for(const cleanup of cleanups.get(container)??[])cleanup();
+  const pending=[];cleanups.set(container,pending);
   for (const slot of slotsFor(model.mode)) {
     const doc = container.ownerDocument;
     const card = doc.createElement('section'); card.className = 'wallpaper-slot'; card.dataset.slot = slot;
     const title = doc.createElement('h3'); title.textContent = slot === 'single' ? 'Wallpaper' : `${slot === 'light' ? 'Light' : 'Dark'} wallpaper`;
     const selected = model.images[slot];
     const preview = doc.createElement('img'); preview.alt = `${title.textContent} preview`; preview.hidden = !selected;
-    if (selected) preview.src = selected.preview;
+    const fallback=selected??(model.mode==='dual'?model.images[slot==='light'?'dark':'light']:null);
+    preview.hidden=!fallback;
+    if (fallback) preview.src = fallback.preview;
+    const canvas=doc.createElement('div');canvas.className='wallpaper-layout-preview';canvas.append(preview);
     const name = doc.createElement('p'); if(selected)name.className='wallpaper-filename'; name.textContent = selected?.name ?? (slot === 'single' ? 'No image selected' : 'Not set — uses the other wallpaper as fallback');
     const pick = doc.createElement('button'); pick.type = 'button'; pick.disabled = busy;
     pick.textContent = selected ? 'Replace PNG/JPG' : 'Choose PNG/JPG'; pick.addEventListener('click', () => choose(slot));
@@ -31,6 +39,7 @@ export function renderWallpaperSlots(container, model, {busy = false, choose, cl
     remove.addEventListener('click', () => clear(slot));
     const hint = doc.createElement('p'); hint.textContent = 'Or drag & drop one PNG/JPG here';
     card.addEventListener('drop', event => { event.preventDefault(); event.stopPropagation(); if (!busy) drop(slot, event); });
-    card.append(title, preview, name, pick, remove, hint); container.append(card);
+    card.append(title, canvas, name, pick, remove, hint); container.append(card);
+    pending.push(bindLayoutPreview(preview,editorLayoutConfig(model,slot==='dark'?'dark':'light')));
   }
 }

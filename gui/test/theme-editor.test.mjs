@@ -9,8 +9,46 @@ import {WallpaperDrafts} from '../src/main/services/wallpaper-drafts.mjs';
 import {ThemeEditor} from '../src/main/services/theme-editor.mjs';
 import {loadThemePackage} from '../../scripts/theme-loader.mjs';
 import {loadThemePayload} from '../../scripts/theme-payload.mjs';
+import {editorLayoutConfig,withWallpaperMode} from '../src/shared/wallpaper-layout.mjs';
+import {ThemeCatalog} from '../src/main/services/theme-catalog.mjs';
 import {makeTemporaryDirectory,removeTemporaryDirectory,tinyPng} from './helpers.mjs';
 const project=fileURLToPath(new URL('../../',import.meta.url));
+test('layout modes save for single/dual, edit atomically, catalog/payload/preview agree',async()=>{
+ const s=await setup();try{
+  for(const mode of ['single','dual'])for(const layoutMode of ['contain','cover','focus-soft']){
+   const tokens={};for(const slot of mode==='single'?['single']:['light','dark'])tokens[slot]=(await s.drafts.prepare(slot+'.png',tinyPng)).token;
+   const {id}=await s.editor.save({name:'Layout',mode,tokens,layoutMode});
+   const loaded=await s.editor.load(id),dir=path.join(s.themesRoot,id),pkg=await loadThemePackage(dir);
+   for(const side of ['light','dark'])assert.deepEqual(editorLayoutConfig(loaded,side),pkg.layoutConfig[side]);
+   assert.equal(pkg.layoutConfig.light.mode,layoutMode);
+   const next=layoutMode==='cover'?'contain':'cover';
+   const model={id,name:loaded.name,mode,revision:loaded.revision,tokens:Object.fromEntries(Object.entries(loaded.images).map(([k,v])=>[k,v.token])),layoutMode:next};
+   const before=await fs.readFile(path.join(dir,'theme.json'));
+   await assert.rejects(new ThemeEditor({...s,commit:async()=>{throw Error('disk');}}).save(model));
+   assert.deepEqual(await fs.readFile(path.join(dir,'theme.json')),before);
+   await s.editor.save(model);
+   const saved=await loadThemePackage(dir),catalog=await new ThemeCatalog({themesRoot:s.themesRoot}).scan();
+   assert.deepEqual(catalog.themes.find(t=>t.id===id).layoutConfig,saved.layoutConfig);
+   for(const side of ['light','dark'])assert.deepEqual(saved.layoutConfig[side],editorLayoutConfig({...loaded,layoutMode:next},side));
+   assert.deepEqual(saved.layoutConfig.light.focalRegion,pkg.layoutConfig.light.focalRegion);
+   assert.match(saved.manifest.layout,/assets\/edit-.*\/layout.json/);
+   await loadThemePayload(project,dir,'Auto');
+  }
+ }finally{await removeTemporaryDirectory(s.temp);}
+});
+test('legacy focal layouts remain intact, only explicit mode changes; invalid selection rejected',async()=>{
+ for(const id of ['forest-scholar','phainon']){
+  const doc=JSON.parse(await fs.readFile(path.join(project,'themes',id,'layout.json'),'utf8'));
+  assert.deepEqual(withWallpaperMode(doc),doc);
+  const next=withWallpaperMode(doc,'cover');
+  assert.deepEqual(next.shared.focalRegion,doc.shared.focalRegion);
+  assert.deepEqual(next.shared.anchor,doc.shared.anchor);
+  assert.deepEqual(next.shared.safePadding,doc.shared.safePadding);
+  assert.equal(next.shared.focusTolerance,doc.shared.focusTolerance);
+ }
+ assert.equal(editorLayoutConfig({}).mode,'contain');
+ assert.throws(()=>withWallpaperMode(undefined,'bogus'));
+});
 async function setup(){const temp=await makeTemporaryDirectory('editor 中文 ');const themesRoot=path.join(temp,'themes');await fs.mkdir(themesRoot);const creator=new ThemeCreator({themesRoot,validateImage:()=>{},convertJpeg:()=>tinyPng});const drafts=new WallpaperDrafts(creator),management=new ThemeManagement({themesRoot});return {temp,themesRoot,creator,drafts,management,editor:new ThemeEditor({creator,drafts,management})};}
 test('shared editor saves single, dual and either-side fallback with Universal palette',async()=>{
  const s=await setup();try{

@@ -1,10 +1,11 @@
 [CmdletBinding()]
-param([switch]$Quiet)
+param([switch]$Quiet, [string]$DataRoot)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Common.ps1')
+$projectRoot = Initialize-FssStorage -DataRoot $DataRoot
 $runtimeDirectory = Join-Path $projectRoot 'runtime'
 $sessionPath = Join-Path $runtimeDirectory 'session.json'
 $injectionStatePath = Join-Path $runtimeDirectory 'injection-state.json'
@@ -12,7 +13,6 @@ $readyPath = Join-Path $runtimeDirectory 'ready.json'
 $stopPath = Join-Path $runtimeDirectory 'stop.request'
 $injectorPath = Join-Path $PSScriptRoot 'injector.mjs'
 
-. (Join-Path $PSScriptRoot 'Common.ps1')
 
 $session = Read-FssJson -Path $sessionPath
 if ($null -eq $session) {

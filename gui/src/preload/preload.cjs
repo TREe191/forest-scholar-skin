@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 const CHANNELS = Object.freeze({
+  exportDiagnostics:'theme-manager:export-diagnostics',
   getGuiPreferences:'theme-manager:get-gui-preferences',saveGuiPreferences:'theme-manager:save-gui-preferences',
   duplicateTheme:'theme-manager:duplicate-theme',
   loadEditor:'theme-manager:load-editor',saveEditor:'theme-manager:save-editor',
@@ -15,6 +16,7 @@ const CHANNELS = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("themeManager", Object.freeze({
+  exportDiagnostics:()=>ipcRenderer.invoke(CHANNELS.exportDiagnostics),
   getGuiPreferences:()=>ipcRenderer.invoke(CHANNELS.getGuiPreferences),
   saveGuiPreferences:value=>ipcRenderer.invoke(CHANNELS.saveGuiPreferences,value),
   duplicateTheme:id=>ipcRenderer.invoke(CHANNELS.duplicateTheme,id),

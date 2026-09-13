@@ -27,17 +27,24 @@ export async function readManagement(directory, manifest) {
 }
 
 export class ThemeManagement {
-  constructor({themesRoot,configStore,confirmDelete,renameFile=fs.rename}) {Object.assign(this,{themesRoot,configStore,confirmDelete,renameFile});}
+  constructor({themesRoot,builtinThemesRoot=null,configStore,confirmDelete,renameFile=fs.rename}) {Object.assign(this,{themesRoot,builtinThemesRoot,configStore,confirmDelete,renameFile});}
   async target(id) {
     if(!isThemeId(id)) throw Error('Invalid theme ID');
-    const root=await fs.realpath(this.themesRoot),directory=path.join(root,id);
+    let selectedRoot=this.themesRoot,builtin=false;
+    if(this.builtinThemesRoot){
+      try{await fs.lstat(path.join(this.builtinThemesRoot,id));selectedRoot=this.builtinThemesRoot;builtin=true;}
+      catch(error){if(error.code!=='ENOENT')throw error;}
+    }
+    const root=await fs.realpath(selectedRoot),directory=path.join(root,id);
     const stat=await fs.lstat(directory);
     if(stat.isSymbolicLink() || !stat.isDirectory() || await fs.realpath(directory)!==directory) throw Error('Unsafe theme directory');
     const manifestPath=path.join(directory,'theme.json');
     if((await fs.lstat(manifestPath)).isSymbolicLink()) throw Error('Unsafe manifest');
     const manifest=JSON.parse(await fs.readFile(manifestPath,'utf8'));
     if(manifest.id!==id) throw Error('Theme identity mismatch');
-    return {root,directory,manifestPath,manifest,policy:await readManagement(directory,manifest)};
+    const policy=await readManagement(directory,manifest);
+    if(builtin)Object.assign(policy,{origin:'builtin',protected:true,renamable:false,deletable:false});
+    return {root,directory,manifestPath,manifest,policy};
   }
   async rename(id,name) {
     name=validateThemeName(name);

@@ -6,6 +6,7 @@ import {validatePaletteOverrides} from '../../../../scripts/palette-overrides.mj
 import {validateThemeName} from './theme-creator.mjs';
 import {USER_MANAGEMENT} from './theme-management.mjs';
 import {copyThemeDependencies} from './theme-duplicate.mjs';
+import {withWallpaperMode} from '../../shared/wallpaper-layout.mjs';
 const revision=text=>createHash('sha256').update(text).digest('hex');
 export class ThemeEditor {
   constructor({creator,drafts,management,commit=fs.rename}){Object.assign(this,{creator,drafts,management,commit});}
@@ -18,10 +19,11 @@ export class ThemeEditor {
     const images={};
     if(mode==='single') images.single=await this.drafts.prepare('background.png',(pkg.backgrounds.light??pkg.backgrounds.dark).bytes);
     else for(const side of ['light','dark']) if(pkg.manifest.variants?.[side]||pkg.manifest.background?.overrides?.[side]) images[side]=await this.drafts.prepare(`${side}.png`,pkg.backgrounds[side].bytes);
-    return {id,name:pkg.manifest.name,mode,images,customStyles:pkg.styles.length>0,paletteOverrides:validatePaletteOverrides(pkg.manifest.paletteOverrides),revision:revision(await fs.readFile(t.manifestPath))};
+    const layout=JSON.parse(await fs.readFile(path.join(t.directory,pkg.manifest.layout),'utf8'));
+    return {id,name:pkg.manifest.name,mode,images,layout,customStyles:pkg.styles.length>0,paletteOverrides:validatePaletteOverrides(pkg.manifest.paletteOverrides),revision:revision(await fs.readFile(t.manifestPath))};
   }
   async save(model){
-    if(!model||Object.keys(model).some(k=>!['id','name','mode','tokens','paletteOverrides','revision'].includes(k)))throw Error('Invalid editor model');
+    if(!model||Object.keys(model).some(k=>!['id','name','mode','tokens','paletteOverrides','revision','layoutMode'].includes(k)))throw Error('Invalid editor model');
     const name=validateThemeName(model.name),palette=validatePaletteOverrides(model.paletteOverrides);
     if(!['single','dual'].includes(model.mode)||!model.tokens||typeof model.tokens!=='object'||Array.isArray(model.tokens)||Object.keys(model.tokens).some(k=>!['single','light','dark'].includes(k)))throw Error('Invalid wallpaper mode');
     const slots=model.mode==='single'?['single']:['light','dark'];
@@ -42,7 +44,10 @@ export class ThemeEditor {
       const manifest={...(t?.manifest??{$schema:'../theme.schema.json',schemaVersion:2,id,version:'0.1.0',author:'Local user',description:'User-created Universal wallpaper theme.'}),schemaVersion:2,name,compatibility:{codexAppearances:['light','dark']},background,paletteOverrides:palette,layout:t?.manifest.layout??'layout.json'};
       delete manifest.variants;delete manifest.capabilities;
       if(t?.manifest.styles?.length)delete manifest.paletteOverrides;
-      const layout=t?JSON.parse(await fs.readFile(path.join(t.directory,t.manifest.layout),'utf8')):{schemaVersion:1,shared:{mode:'contain',focalRegion:{x:0,y:0,width:1,height:1},anchor:{x:0.5,y:0.5},safePadding:{left:0,right:0,top:0,bottom:0},focusTolerance:0,scale:1,minScale:null,maxScale:null,offset:{x:0,y:0}},variants:{light:{},dark:{}}};
+      const layout=withWallpaperMode(t?JSON.parse(await fs.readFile(path.join(t.directory,t.manifest.layout),'utf8')):undefined,model.layoutMode);
+      // Publish edited layout with its asset generation; the atomic manifest
+      // pointer commits images and layout together, leaving old readers intact.
+      if(t&&model.layoutMode!==undefined)manifest.layout=`assets/${generation}/layout.json`;
       if(t)await copyThemeDependencies(t.directory,stage,t.manifest);
       await fs.mkdir(path.dirname(path.join(stage,manifest.layout)),{recursive:true});
       await fs.writeFile(path.join(stage,manifest.layout),JSON.stringify(layout,null,2));

@@ -39,6 +39,8 @@ export class CodexActions {
   #restoreScript;
   #powerShell;
   #executor;
+  #dataRoot;
+  #environment;
 
   constructor({
     projectRoot,
@@ -46,6 +48,8 @@ export class CodexActions {
     restoreScript,
     environment = process.env,
     executor = executeProcess,
+    isPackaged=false,
+    dataRoot,
   }) {
     for (const [name, value] of Object.entries({ projectRoot, startScript, restoreScript })) {
       if (!path.isAbsolute(value)) throw new TypeError(`${name} must be absolute.`);
@@ -55,6 +59,13 @@ export class CodexActions {
     this.#restoreScript = restoreScript;
     this.#powerShell = resolveWindowsPowerShell(environment);
     this.#executor = executor;
+    if(isPackaged&&(!dataRoot||!path.isAbsolute(dataRoot)))throw Error('Packaged launch requires absolute dataRoot.');
+    this.#dataRoot=isPackaged?dataRoot:null;
+    this.#environment={...environment};
+    if(isPackaged){
+      delete this.#environment.NODE_OPTIONS;delete this.#environment.NODE_PATH;
+      this.#environment.TEMP=this.#environment.TMP=path.join(dataRoot,'runtime','temp');
+    }
   }
 
   launch() {
@@ -74,10 +85,12 @@ export class CodexActions {
       "Bypass",
       "-File",
       scriptPath,
+      ...(this.#dataRoot?['-DataRoot',this.#dataRoot]:[]),
       ...scriptArguments,
     ];
     const result = await this.#executor(this.#powerShell, args, {
-      cwd: this.#projectRoot,
+      cwd: this.#dataRoot??this.#projectRoot,
+      env:this.#environment,
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],

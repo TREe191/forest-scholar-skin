@@ -47,7 +47,7 @@ test('compact icon order and translated tooltips; language remains a select',asy
 test('editor and Advanced scroll internally with footer outside; portrait previews bounded',async()=>{
   const html=await readFile(new URL('../src/renderer/index.html',import.meta.url),'utf8');
   const css=await readFile(new URL('../src/renderer/styles.css',import.meta.url),'utf8');
-  for(const id of ['create-dialog','adaptation-dialog']){
+  for(const id of ['create-dialog']){
     const dialog=html.match(new RegExp(`<dialog id="${id}"[\\s\\S]*?</dialog>`))[0];
     assert.match(dialog,/class="modal-content"[\s\S]*<\/div>\s*<div class="modal-actions">/);
   }

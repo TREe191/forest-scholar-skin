@@ -2,14 +2,17 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Light', 'Dark', 'Auto')]
-    [string]$Mode
+    [string]$Mode,
+    [string]$DataRoot
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $requestedMode = $Mode
-$projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Common.ps1')
+$resourceRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Initialize-FssStorage -DataRoot $DataRoot
 $runtimeDirectory = Join-Path $projectRoot 'runtime'
 $sessionPath = Join-Path $runtimeDirectory 'session.json'
 $injectionStatePath = Join-Path $runtimeDirectory 'injection-state.json'
@@ -20,7 +23,6 @@ $stdoutPath = Join-Path $runtimeDirectory 'injector.log'
 $stderrPath = Join-Path $runtimeDirectory 'injector-error.log'
 $historyRoot = Join-Path $runtimeDirectory 'history'
 
-. (Join-Path $PSScriptRoot 'Common.ps1')
 
 $appConfigPath = Join-Path $projectRoot 'config\app.json'
 $themesRoot = Join-Path $projectRoot 'themes'
@@ -59,6 +61,9 @@ if ($requestedMode -eq 'Auto') {
     }
 }
 $resolvedThemesRoot = (Resolve-Path -LiteralPath $themesRoot).Path
+if ($DataRoot -and (Test-Path -LiteralPath (Join-Path (Join-Path $resourceRoot 'themes') $activeTheme) -PathType Container)) {
+    $resolvedThemesRoot = (Resolve-Path -LiteralPath (Join-Path $resourceRoot 'themes')).Path
+}
 $declaredThemePackage = Join-Path $resolvedThemesRoot $activeTheme
 if (-not (Test-Path -LiteralPath $declaredThemePackage -PathType Container)) {
     throw "The active theme package does not exist: $activeTheme"
@@ -605,6 +610,7 @@ try {
         '--port', "$port",
         '--browser-id', $cdpIdentity.BrowserId,
         '--root', $projectRoot,
+        '--resource-root', $resourceRoot,
         '--theme-package', $themePackagePath,
         '--mode', $Mode,
         '--state-file', $injectionStatePath

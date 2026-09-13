@@ -19,7 +19,7 @@ export function assertThemeAppearanceCompatibility(catalog, selection) {
   }
 }
 
-export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog, configStore, actions, creator, pickWallpaper, drafts, management, editor, duplicator, guiPreferences }) {
+export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog, configStore, actions, creator, pickWallpaper, drafts, management, editor, duplicator, guiPreferences, runtimeInfo, diagnostics }) {
   let creating = false;
   let mutation = false;
   const exclusive = async fn => {
@@ -30,6 +30,12 @@ export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog,
     ipcMain.handle(channel, async (event, ...args) => {
       try {
         authorize(event, authorizedWebContentsId);
+        if(runtimeInfo && runtimeInfo.mode!=='development'){
+          if(channel===IPC_CHANNELS.rescanThemes)throw Error('Developer controls are unavailable in production.');
+          const id=channel===IPC_CHANNELS.loadEditor||channel===IPC_CHANNELS.duplicateTheme?args[0]:
+            [IPC_CHANNELS.renameTheme,IPC_CHANNELS.deleteTheme,IPC_CHANNELS.saveEditor].includes(channel)?args[0]?.id:null;
+          if(id){await catalog.scan();if(!catalog.has(id))throw Error('Theme is unavailable in this build.');}
+        }
         return await operation(...args);
       } catch (error) {
         return publicError(error);
@@ -42,6 +48,7 @@ export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog,
     const config = await configStore.read();
     return {
       ok: true,
+      runtimeInfo,
       ...catalogState,
       config,
       applied: await configStore.readApplied?.() ?? null,
@@ -50,6 +57,10 @@ export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog,
   };
 
   handle(IPC_CHANNELS.getState, buildState);
+  handle(IPC_CHANNELS.exportDiagnostics,()=>exclusive(async()=>{
+    if(!runtimeInfo?.supportDiagnostics)throw Error('Diagnostics export is unavailable in this build.');
+    return {ok:true,...await diagnostics.exportLatest()};
+  }));
   handle(IPC_CHANNELS.getGuiPreferences,async()=>({ok:true,preferences:await guiPreferences.read()}));
   handle(IPC_CHANNELS.saveGuiPreferences,async value=>({ok:true,preferences:await guiPreferences.save(value)}));
   handle(IPC_CHANNELS.duplicateTheme,id=>exclusive(async()=>{
@@ -95,7 +106,13 @@ export function registerIpcHandlers({ ipcMain, authorizedWebContentsId, catalog,
     const config = await configStore.apply(selection, { themeExists: (id) => catalog.has(id), contentRevision });
     return { ok: true, config, ...catalogState, applied: await configStore.readApplied?.() ?? null };
   }));
-  handle(IPC_CHANNELS.launchCodex, async () => ({ ok: true, result: await actions.launch() }));
+  handle(IPC_CHANNELS.launchCodex, async () => {
+    if(runtimeInfo && runtimeInfo.mode!=='development'){
+      await catalog.scan();const config=await configStore.read();
+      if(!catalog.has(config.activeTheme))throw Error('Choose and Apply an available theme before launching.');
+    }
+    return {ok:true,result:await actions.launch()};
+  });
   handle(IPC_CHANNELS.restoreCodex, async () => ({ ok: true, result: await actions.restore() }));
 
   return () => {

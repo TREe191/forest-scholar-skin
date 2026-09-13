@@ -6,6 +6,8 @@ import { legacyAppearanceToSkinAdaptation, skinAdaptationToLegacyAppearance } fr
 import { PALETTE_TOKENS } from '../../../scripts/palette-overrides.mjs';
 import { slotsFor, switchWallpaperMode, replaceWallpaper, renderWallpaperSlots } from './components/wallpaper-slots.mjs';
 import { createEditorExitGuard } from './components/editor-exit-guard.mjs';
+import {editorLayoutConfig} from '../shared/wallpaper-layout.mjs';
+import {beginEditorSettings,changeEditorPolicy,policyLabel,themeSettingsAction,saveUnifiedDraft} from './components/editor-settings.mjs';
 import { installUiPreferences } from './ui-preferences.mjs';
 
 const api = window.themeManager;
@@ -126,6 +128,9 @@ function render() {
     busy,
     theme,
   });
+  elements.settings.advancedButton.textContent=themeSettingsAction(theme)==='copy'?'Customize a copy':'Theme settings…';
+  elements.settings.advancedButton.disabled=busy||!theme;
+  if(createDialog.open)syncEditorSettings();
   elements.rescanButton.disabled = busy;
   document.querySelector('#create-theme').disabled = busy;
   renderStatusBar(elements.status, {
@@ -147,6 +152,14 @@ function setStatus(tone, message) {
 
 function acceptBootstrap(result, { preserveSelection = false } = {}) {
   if (!result?.ok) throw new Error(result?.error || "Theme Manager state could not be loaded.");
+  if(result.runtimeInfo){
+    const info=result.runtimeInfo;
+    for(const element of document.querySelectorAll('[data-developer-only]'))element.hidden=!info.developerControls;
+    for(const element of document.querySelectorAll('[data-support-only]'))element.hidden=!info.supportDiagnostics;
+    document.querySelector('#about-open').textContent=`v${info.version} · About`;
+    document.querySelector('#about-version').textContent=`v${info.version} · ${info.mode}`;
+    document.querySelector('#about-project').textContent=info.github;
+  }
   state.themes = Array.isArray(result.themes) ? result.themes : [];
   state.invalidThemes = Array.isArray(result.invalidThemes) ? result.invalidThemes : [];
   state.activeTheme = result.config.activeTheme;
@@ -194,13 +207,25 @@ async function runOperation(name, operation, successMessage) {
   }
 }
 
-const adaptationDialog=document.querySelector('#adaptation-dialog');
-document.querySelector('#open-adaptation').addEventListener('click',()=>adaptationDialog.showModal());
-document.querySelector('#close-adaptation').addEventListener('click',()=>adaptationDialog.close());
+document.querySelector('#open-adaptation').addEventListener('click',()=>{
+  const theme=selectedTheme();
+  if(themeSettingsAction(theme)==='copy')void duplicateTheme(theme);
+  else if(theme)void openEditor(theme);
+});
+document.querySelector('#about-open').addEventListener('click',()=>document.querySelector('#about-dialog').showModal());
+document.querySelector('#about-close').addEventListener('click',()=>document.querySelector('#about-dialog').close());
+document.querySelector('#support-open').addEventListener('click',()=>document.querySelector('#support-dialog').showModal());
+document.querySelector('#support-close').addEventListener('click',()=>document.querySelector('#support-dialog').close());
+document.querySelector('#support-export').addEventListener('click',async event=>{
+  const button=event.currentTarget,result=document.querySelector('#support-result');button.disabled=true;
+  try{const reply=await api.exportDiagnostics();result.textContent=reply.ok?(reply.canceled?'Export canceled.':'Diagnostics exported.'):'Diagnostics export failed. Original logs were not changed.';}
+  catch{result.textContent='Diagnostics export failed. Original logs were not changed.';}
+  finally{button.disabled=false;}
+});
 
 elements.rescanButton.addEventListener("click", async () => {
   const result = await runOperation("scanning", () => api.rescanThemes(), "Theme Packages rescanned.");
-  if (result) acceptBootstrap(result, { preserveSelection: true });
+  if (result) refreshPreservingSelection(result);
   render();
 });
 
@@ -214,9 +239,8 @@ for (const button of elements.previewButtons) {
 for (const input of elements.settings.adaptationInputs) {
   input.addEventListener("change", () => {
     if (!input.checked) return;
-    state.skinAdaptation = input.value;
-    setStatus("ready", dirtyMessage());
-    render();
+    changeEditorPolicy(editorSettings,input.value);
+    syncEditorSettings();
   });
 }
 
@@ -253,7 +277,30 @@ elements.settings.restoreButton.addEventListener("click", () => runOperation(
 const createDialog = document.querySelector('#create-dialog');
 let choosing=false, renameId=null;
 let editorModel={mode:'single',images:{}};
+let editorSettings=beginEditorSettings(state.skinAdaptation);
+function syncEditorSettings(){
+  document.querySelector('#editor-basic').hidden=editorSettings.view!=='basic';
+  document.querySelector('#editor-advanced').hidden=editorSettings.view!=='advanced';
+  document.querySelector('#editor-policy-summary').textContent='Adaptation: '+policyLabel(editorSettings.policy);
+  const palette=getPalette();
+  const count=Object.keys(palette.light??{}).length+Object.keys(palette.dark??{}).length;
+  document.querySelector('#editor-palette-summary').textContent=editorModel.customStyles?'Palette: Custom theme CSS':count?'Palette: manual overrides enabled':'Palette: Universal automatic';
+  for(const input of elements.settings.adaptationInputs){input.checked=input.value===editorSettings.policy;input.disabled=choosing||isBusy();}
+  elements.settings.forceWarning.hidden=editorSettings.policy==='follow-codex';
+  elements.settings.compatibilityWarning.hidden=true;
+}
+document.querySelector('#editor-advanced-open').addEventListener('click',()=>{
+  editorSettings.view='advanced';syncEditorSettings();document.querySelector('#editor-advanced-back').focus();
+});
+document.querySelector('#editor-advanced-back').addEventListener('click',()=>{
+  editorSettings.view='basic';syncEditorSettings();document.querySelector('#editor-advanced-open').focus();
+});
 const wallpaperMode=document.querySelector('#wallpaper-mode');
+const layoutButtons=[...document.querySelectorAll('[data-wallpaper-layout]')];
+for(const button of layoutButtons)button.addEventListener('click',()=>{
+  if(choosing)return;
+  editorModel.layoutMode=button.dataset.wallpaperLayout;setSlots();
+});
 const paletteRows=[];
 for(const mode of ['light','dark']){
   const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=mode;group.append(legend);
@@ -271,6 +318,9 @@ function setPalette(palette={}){for(const r of paletteRows){const v=palette[r.mo
 function getPalette(){const p={schemaVersion:1,light:{},dark:{}};for(const r of paletteRows)if(r.enabled.checked)p[r.mode][r.token]={color:r.color.value,alpha:Number(r.alpha.value)};return p;}
 function hasImages(){return slotsFor(editorModel.mode).some(s=>editorModel.images[s]);}
 function setSlots(){
+  const current=editorLayoutConfig(editorModel).mode;
+  for(const button of layoutButtons){button.disabled=choosing;button.setAttribute('aria-pressed',String(button.dataset.wallpaperLayout===current));}
+  document.querySelector('#wallpaper-layout-note').textContent=current==='contain'?'Fit: show the whole image; empty edges are allowed.':current==='cover'?'Fill: cover the viewport; cropping is allowed.':current==='focus-soft'?'Focus: protect the existing focal region; new themes prioritize the center.':'Existing custom layout is preserved until you select a mode.';
   wallpaperMode.disabled=choosing;
   confirmCreate.disabled=choosing||!hasImages();
   renderWallpaperSlots(document.querySelector('#wallpaper-slots'),editorModel,{
@@ -326,7 +376,7 @@ function askEditorExit(){
 }
 const editorExit=createEditorExitGuard({
   readDraft:()=>({name:document.querySelector('#create-name').value,mode:editorModel.mode,
-    images:editorModel.images,paletteOverrides:getPalette()}),
+    images:editorModel.images,paletteOverrides:getPalette(),policy:editorSettings.policy,layoutMode:JSON.stringify(['light','dark'].map(v=>editorLayoutConfig(editorModel,v)))}),
   ask:askEditorExit,save:saveEditorDraft,close:closeEditor,
 });
 async function requestEditorExit(){
@@ -342,6 +392,7 @@ document.querySelector('#create-theme').addEventListener('click', async () => {
   if(createDialog.open && !await requestEditorExit())return;
   resetImage();
   editorModel={mode:'single',images:{}};wallpaperMode.value='single';setPalette();setSlots();
+  editorSettings=beginEditorSettings(state.skinAdaptation);syncEditorSettings();
   document.querySelector('#palette-advanced').hidden=false;
   document.querySelector('#custom-copy-note').hidden=true;
   document.querySelector('#create-heading').textContent='Create Theme / Add Wallpaper';
@@ -358,23 +409,25 @@ document.querySelector('#create-form').addEventListener('submit', async event =>
 async function saveEditorDraft(){
   const name = document.querySelector('#create-name').value.trim();
   if(isBusy()||choosing)return false;
+  const invalid=document.querySelector('#create-form :invalid');
+  if(invalid){editorSettings.view=invalid.closest('#editor-advanced')?'advanced':'basic';syncEditorSettings();}
   if (!name || !hasImages() || !document.querySelector('#create-form').reportValidity()) {
     document.querySelector('#wallpaper-error').textContent='Enter a theme name and choose at least one wallpaper; check palette values.';
     return false;
   }
   choosing=true;setSlots();
   document.querySelector('#create-form').inert=true;
-  const model={id:editorModel.id,name,mode:editorModel.mode,tokens:Object.fromEntries(Object.entries(editorModel.images).map(([s,v])=>[s,v.token])),paletteOverrides:getPalette(),revision:editorModel.revision};
-  const result = await runOperation('saving', () => api.saveEditor(model), 'Theme saved.');
+  const model={id:editorModel.id,name,mode:editorModel.mode,tokens:Object.fromEntries(Object.entries(editorModel.images).map(([s,v])=>[s,v.token])),paletteOverrides:getPalette(),revision:editorModel.revision,layoutMode:editorModel.layoutMode};
+  let savedPolicy=state.skinAdaptation;
+  const result = await saveUnifiedDraft(editorSettings,()=>runOperation('saving', () => api.saveEditor(model), 'Theme saved.'),policy=>{savedPolicy=policy;});
   choosing=false;setSlots();
   document.querySelector('#create-form').inert=false;
   if (result?.canceled) setStatus('ready', 'Creation canceled. No theme was added.');
   else if (result) {
     closeEditor();
-    const pendingAdaptation = state.skinAdaptation;
     acceptBootstrap(result);
     state.selectedTheme = result.created.id;
-    state.skinAdaptation = pendingAdaptation;
+    state.skinAdaptation = savedPolicy;
     setStatus('ready', 'Theme saved and selected. Apply when ready; Codex was not restarted.');
   }
   render();
@@ -390,6 +443,7 @@ async function openEditor(theme){
   if(createDialog.open && !await requestEditorExit())return;
   const result=await runOperation('loading',()=>api.loadEditor(theme.id),'Editor loaded.');if(!result)return;
   editorModel=result.model;wallpaperMode.value=editorModel.mode;setPalette(editorModel.paletteOverrides);setSlots();
+  editorSettings=beginEditorSettings(state.skinAdaptation);syncEditorSettings();
   document.querySelector('#palette-advanced').hidden=Boolean(editorModel.customStyles);
   document.querySelector('#custom-copy-note').hidden=!editorModel.customStyles;
   document.querySelector('#create-name').value=editorModel.name;document.querySelector('#create-heading').textContent='Edit Theme';editorExit.begin();createDialog.showModal();

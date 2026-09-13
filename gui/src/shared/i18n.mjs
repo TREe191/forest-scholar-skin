@@ -1,6 +1,23 @@
 // English source strings are stable keys. Theme names, descriptions and filenames
 // are data, not translation keys. Unknown technical errors retain their details.
 export const zh = Object.freeze({
+  'Diagnostics / Support':'诊断 / 支持','Export diagnostics':'导出诊断',
+  'Only startup and application diagnostics are included. Chat and account content are not collected.':'诊断仅包含启动和应用日志信息，不收集聊天或账号内容。',
+  'Exports only the latest startup session. Raw logs and full paths are excluded.':'仅导出最近一次启动；不包含原始日志和完整路径。',
+  'Export canceled.':'已取消导出。','Diagnostics exported.':'诊断包已导出。',
+  'Diagnostics export failed. Original logs were not changed.':'诊断导出失败，原日志未被修改。',
+  'About':'关于','About Theme Manager':'关于主题管理器','Author: TREe191':'作者：TREe191',
+  'Theme settings…':'主题设置…','Advanced settings':'高级设置','Back to theme':'返回主题',
+  'UI palette overrides':'UI 配色覆盖','Palette: Custom theme CSS':'配色：自定义主题 CSS',
+  'Palette: manual overrides enabled':'配色：已启用手动覆盖','Palette: Universal automatic':'配色：Universal 自动适配',
+  'Manual Codex UI colors, not wallpaper edits. Disabled items use Universal automatic values.':'手动覆盖 Codex UI 颜色，不修改壁纸。未启用项继续使用 Universal 自动值。',
+  'Save keeps this policy pending. Apply changes makes it active.':'保存后策略保持待应用状态，点击“应用更改”才生效。',
+  'Wallpaper layout':'壁纸布局','Fit':'适应','Fill':'填充','Focus':'焦点',
+  'Fit: show the whole image; empty edges are allowed.':'适应：完整显示图片，允许留边。',
+  'Fill: cover the viewport; cropping is allowed.':'填充：铺满窗口，允许裁切。',
+  'Focus: protect the existing focal region; new themes prioritize the center.':'焦点：保护已有主体区域；新主题默认优先中央区域。',
+  'Existing custom layout is preserved until you select a mode.':'选择模式前保留原有自定义布局。',
+  'Up to 20 MB / 8 million pixels. Layout is shared by Light and Dark wallpapers.':'最大 20 MB / 800 万像素。浅色与深色壁纸共享布局选择。',
   'Theme Manager':'主题管理器','Themes':'主题','Preview':'预览',
   'Add Wallpaper':'添加壁纸','Wallpaper (PNG / JPG)':'壁纸（PNG / JPG）',
   'Manager appearance':'管理器外观','Language':'语言','System':'跟随系统','Light':'浅色','Dark':'深色',
@@ -82,6 +99,8 @@ export function translate(text,language='en'){
   if(zh[text])return zh[text];
   if(text.endsWith('…') && zh[text.slice(0,-1)+'.'])return zh[text.slice(0,-1)+'.'].replace(/。$/,'…');
   const rules=[
+    [/^(v[\d.]+) · About$/,(_,v)=>v+' · 关于'],
+    [/^(v[\d.]+) · production$/,(_,v)=>v+' · 发行版'],
     [/^Adaptation: (.*)$/,(_,v)=>'适配：'+translate(v,language)],
     [/^Active: (.*) · (Follow Codex|Force light skin|Force dark skin)$/,(_,n,v)=>'已应用：'+n+' · '+translate(v,language)],
     [/^Actions for (.*)$/,(_,n)=>n+' 的操作'],

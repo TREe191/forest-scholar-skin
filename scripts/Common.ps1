@@ -1,6 +1,32 @@
 Set-StrictMode -Version Latest
 
 $script:FssSchemaVersion = 1
+$script:FssDataRoot = Split-Path -Parent $PSScriptRoot
+$script:FssUseBundledNode = $false
+
+function Initialize-FssStorage {
+    param([string]$DataRoot)
+    if (-not $DataRoot -and (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'node\runtime.json'))) { throw 'Packaged workflows require an explicit writable DataRoot.' }
+    if ($DataRoot) {
+        if (-not [System.IO.Path]::IsPathRooted($DataRoot)) { throw 'DataRoot must be absolute.' }
+        $resolvedData = [System.IO.Path]::GetFullPath($DataRoot).TrimEnd('\')
+        $resources = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot)).TrimEnd('\')
+        if ($resolvedData.Equals($resources, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $resolvedData.StartsWith($resources + '\', [System.StringComparison]::OrdinalIgnoreCase)) { throw 'DataRoot must be outside read-only resources.' }
+        $ancestor = $resolvedData
+        while ($ancestor) {
+            if (Test-Path -LiteralPath $ancestor) {
+                if ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw 'Linked DataRoot ancestors are not supported.' }
+            }
+            $parent = Split-Path -Parent $ancestor
+            if ($parent -eq $ancestor) { break }
+            $ancestor = $parent
+        }
+        $script:FssDataRoot = $resolvedData
+        $script:FssUseBundledNode = $true
+    }
+    return $script:FssDataRoot
+}
 
 function Test-FssPathEqual {
     param(
@@ -78,12 +104,24 @@ function Read-FssJson {
 }
 
 function Get-FssNodeRuntime {
-    $command = Get-Command node.exe -ErrorAction SilentlyContinue
-    if (-not $command) {
-        throw 'Node.js was not found in PATH. Forest Scholar Skin did not download or install anything.'
+    if ($script:FssUseBundledNode) {
+        $nodeDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) 'node'
+        $nodePath = Join-Path $nodeDirectory 'node.exe'
+        $metadata = Read-FssJson -Path (Join-Path $nodeDirectory 'runtime.json')
+        if ($null -eq $metadata -or -not (Test-Path -LiteralPath $nodePath -PathType Leaf)) { throw 'Bundled Node runtime is missing.' }
+        $hasher = [System.Security.Cryptography.SHA256]::Create()
+        $stream = [System.IO.File]::OpenRead($nodePath)
+        try { $actualHash = [System.BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '') }
+        finally { $stream.Dispose(); $hasher.Dispose() }
+        if ($actualHash -ne $metadata.sha256) { throw 'Bundled Node runtime hash mismatch.' }
+    } else {
+        $command = Get-Command node.exe -ErrorAction SilentlyContinue
+        if (-not $command) { throw 'Node.js was not found in PATH. Forest Scholar Skin did not download or install anything.' }
+        $nodePath = $command.Source
     }
 
-    $versionText = (& $command.Source --version 2>$null).Trim()
+    $versionText = (& $nodePath --version 2>$null).Trim()
+    if ($script:FssUseBundledNode -and $versionText -ne $metadata.version) { throw 'Bundled Node version mismatch.' }
     $match = [regex]::Match($versionText, '^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)')
     if (-not $match.Success) {
         throw "Unable to parse Node.js version: $versionText"
@@ -95,7 +133,7 @@ function Get-FssNodeRuntime {
     }
 
     return [pscustomobject]@{
-        Path = $command.Source
+        Path = $nodePath
         Version = $versionText
         Major = $major
     }
@@ -156,7 +194,7 @@ function Initialize-FssPackageActivator {
         return
     }
 
-    $runtimeDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) 'runtime'
+    $runtimeDirectory = Join-Path $script:FssDataRoot 'runtime'
     $compilerTemp = Join-Path $runtimeDirectory 'compiler-temp'
     $null = New-Item -ItemType Directory -Path $compilerTemp -Force
     $previousTemp = $env:TEMP

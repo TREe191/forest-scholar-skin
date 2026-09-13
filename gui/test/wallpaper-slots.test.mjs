@@ -18,7 +18,7 @@ test('single has one slot; existing dual has two independent previews and action
   assert.equal(render({mode:'single',images:{}}).root.children.length,1);
   const {root,calls}=render({mode:'dual',images:{light:image('L'),dark:image('D')}});
   assert.deepEqual(root.children.map(c=>c.children[0].textContent),['Light wallpaper','Dark wallpaper']);
-  assert.deepEqual(root.children.map(c=>c.children[1].src),[image('L').preview,image('D').preview]);
+  assert.deepEqual(root.children.map(c=>c.children[1].children[0].src),[image('L').preview,image('D').preview]);
   root.children[0].children[3].events.click();
   root.children[1].children[4].events.click();
   root.children[1].events.drop({preventDefault(){},stopPropagation(){}});
@@ -28,7 +28,8 @@ test('empty dual slot states fallback; busy slots cannot accept drops',()=>{
   const {root,calls}=render({mode:'dual',images:{light:image('L')}},true);
   const dark=root.children[1];
   assert.equal(dark.children[2].textContent,'Not set — uses the other wallpaper as fallback');
-  assert.equal(dark.children[1].hidden,true);
+  assert.equal(dark.children[1].children[0].hidden,false);
+  assert.equal(dark.children[1].children[0].src,image('L').preview);
   assert.equal(dark.children[3].disabled,true);
   dark.events.drop({preventDefault(){},stopPropagation(){}});
   assert.equal(calls.length,0);

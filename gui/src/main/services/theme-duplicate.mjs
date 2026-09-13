@@ -31,7 +31,8 @@ export class ThemeDuplicator {
     do {const suffix=index===1?' Copy':` Copy (${index})`;name=source.manifest.name.slice(0,80-suffix.length).trimEnd()+suffix;index++;}
     while(names.has(name.toLocaleLowerCase()));
     const id='user-'+randomUUID();
-    const staging=path.join(path.dirname(source.root),'runtime','theme-creation');
+    const destinationRoot=await fs.realpath(this.management.themesRoot);
+    const staging=path.join(path.dirname(destinationRoot),'runtime','theme-creation');
     await fs.mkdir(staging,{recursive:true});
     const stage=await fs.mkdtemp(path.join(staging,'duplicate-'));
     try {
@@ -39,7 +40,7 @@ export class ThemeDuplicator {
       await fs.writeFile(path.join(stage,'theme.json'),JSON.stringify({...source.manifest,id,name},null,2),{flag:'wx'});
       await fs.writeFile(path.join(stage,'management.json'),JSON.stringify(USER_MANAGEMENT,null,2),{flag:'wx'});
       await loadThemePackage(stage);
-      await this.commit(stage,path.join(source.root,id));
+      await this.commit(stage,path.join(destinationRoot,id));
       return {id};
     } finally {await fs.rm(stage,{recursive:true,force:true});}
   }

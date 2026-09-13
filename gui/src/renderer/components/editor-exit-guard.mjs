@@ -10,6 +10,8 @@ export function draftFingerprint(draft) {
     name:draft.name.trim(), mode:draft.mode,
     images:Object.fromEntries(slots.map(slot=>[slot,draft.images[slot]?.token??null])),
     paletteOverrides:draft.paletteOverrides,
+    layoutMode:draft.layoutMode,
+    policy:draft.policy,
   }));
 }
 export function createEditorExitGuard({readDraft,ask,save,close}) {

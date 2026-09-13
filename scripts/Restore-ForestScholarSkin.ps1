@@ -1,14 +1,14 @@
 [CmdletBinding()]
-param()
+param([string]$DataRoot)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Common.ps1')
+$projectRoot = Initialize-FssStorage -DataRoot $DataRoot
 $runtimeDirectory = Join-Path $projectRoot 'runtime'
 $sessionPath = Join-Path $runtimeDirectory 'session.json'
 
-. (Join-Path $PSScriptRoot 'Common.ps1')
 
 $session = Read-FssJson -Path $sessionPath
 if ($null -eq $session) {
@@ -22,7 +22,7 @@ if ($registration.PackageFamilyName -ne "$($session.packageFamilyName)") {
 }
 
 try {
-    & (Join-Path $PSScriptRoot 'Disable-ForestScholarSkin.ps1') -Quiet
+    & (Join-Path $PSScriptRoot 'Disable-ForestScholarSkin.ps1') -Quiet -DataRoot $DataRoot
 }
 catch {
     Write-Warning 'Live renderer cleanup could not be verified. Restore will continue by closing only Codex processes whose registered executable path matches.'

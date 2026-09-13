@@ -1,4 +1,6 @@
 import path from "node:path";
+import {readFileSync} from 'node:fs';
+import {DiagnosticsExporter} from './services/diagnostics-export.mjs';
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, protocol, session, dialog, nativeImage } from "electron";
 import { ThemeCreator } from './services/theme-creator.mjs';
@@ -8,7 +10,8 @@ import { ThemeEditor } from './services/theme-editor.mjs';
 import { ThemeDuplicator } from './services/theme-duplicate.mjs';
 import { GuiPreferences } from './services/gui-preferences.mjs';
 import { translate } from '../shared/i18n.mjs';
-import { resolvePathContext } from "./paths.mjs";
+import {resolveRuntimeMode,applicationInfo} from '../shared/runtime-mode.mjs';
+import { resolvePathContext,initializeUserData } from "./paths.mjs";
 import { ThemeCatalog } from "./services/theme-catalog.mjs";
 import { AppConfigStore } from "./services/app-config.mjs";
 import { CodexActions } from "./services/codex-actions.mjs";
@@ -20,13 +23,17 @@ registerPreviewScheme(protocol);
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 let removeIpcHandlers = null;
 let services = null;
+const packagedMode=app.isPackaged?JSON.parse(readFileSync(new URL('./build-mode.json',import.meta.url),'utf8')).mode:undefined;
+const runtimeMode=resolveRuntimeMode({isPackaged:app.isPackaged,requested:process.env.THEME_MANAGER_MODE,packagedMode});
 
 async function createServices() {
   const paths = await resolvePathContext({
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
+    userDataPath:app.getPath('userData'),
   });
-  const catalog = new ThemeCatalog({ themesRoot: paths.themesRoot });
+  await initializeUserData(paths);
+  const catalog = new ThemeCatalog({ themesRoot: paths.themesRoot,builtinThemesRoot:paths.builtinThemesRoot,mode:runtimeMode });
   await catalog.scan();
   const creator = new ThemeCreator({ themesRoot: paths.themesRoot,
       validateImage: bytes => {
@@ -41,7 +48,12 @@ async function createServices() {
   installPreviewProtocol(protocol, catalog, drafts);
   const result = {
     creator, drafts, configStore, guiPreferences,
-    management: new ThemeManagement({themesRoot:paths.themesRoot,configStore,confirmDelete:async name=>{
+    runtimeInfo:applicationInfo(app.getVersion(),runtimeMode),
+    diagnostics:new DiagnosticsExporter({historyRoot:path.join(paths.runtimeRoot,'history'),info:applicationInfo(app.getVersion(),runtimeMode),chooseDestination:async defaultPath=>{
+      const result=await dialog.showSaveDialog({title:translate('Export diagnostics',(await guiPreferences.read()).language),defaultPath,filters:[{name:'ZIP',extensions:['zip']}]});
+      return result.canceled?null:result.filePath;
+    }}),
+    management: new ThemeManagement({themesRoot:paths.themesRoot,builtinThemesRoot:paths.builtinThemesRoot,configStore,confirmDelete:async name=>{
       const {language}=await guiPreferences.read();
       const answer=await dialog.showMessageBox({type:'warning',buttons:['Cancel','Delete theme'].map(s=>translate(s,language)),defaultId:0,cancelId:0,message:translate(`Delete “${name}”?`,language),detail:translate('The package will be moved out of the theme list into runtime/deleted-themes for recovery.',language)});
       return answer.response===1;
@@ -77,6 +89,7 @@ async function createMainWindow() {
       webSecurity: true,
       webviewTag: false,
       spellcheck: false,
+      devTools:runtimeMode==='development',
     },
   });
 

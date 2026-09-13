@@ -1,3 +1,5 @@
+import {bindLayoutPreview} from './layout-preview.mjs';
+import {editorLayoutConfig} from '../../shared/wallpaper-layout.mjs';
 const previewRequests = new WeakMap();
 
 function renderImage(elements, url) {
@@ -26,6 +28,7 @@ function renderImage(elements, url) {
 export function renderThemePreview(elements, theme, previewVariant) {
   const url = theme?.previews?.[previewVariant];
   renderImage(elements, typeof url === "string" && url.trim() ? url : null);
+  bindLayoutPreview(elements.image,theme?.layoutConfig?.[previewVariant]??editorLayoutConfig({}));
   if (!theme) {
     elements.image.removeAttribute("src");
     elements.image.alt = "";

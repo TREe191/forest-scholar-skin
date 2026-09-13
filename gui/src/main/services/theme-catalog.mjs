@@ -3,6 +3,7 @@ import path from "node:path";
 import { loadThemePackage } from "../../../../scripts/theme-loader.mjs";
 import { readManagement } from './theme-management.mjs';
 import { themeContentRevision } from './theme-revision.mjs';
+import {themeVisible} from '../../shared/runtime-mode.mjs';
 
 const PREVIEW_SCHEME = "skin-preview";
 
@@ -27,6 +28,7 @@ function publicTheme(theme) {
     author: manifest.author,
     description: manifest.description,
     schemaVersion: manifest.schemaVersion,
+    layoutConfig: theme.layoutConfig,
     supportedAppearances: [...theme.supportedAppearances],
     visualAdaptation: theme.styles.length === 0 ? "universal" : "custom",
     previews: {
@@ -47,34 +49,43 @@ export class ThemeCatalog {
   #packages = new Map();
   #themes = [];
   #invalidThemes = [];
+  #mode;
+  #builtinThemesRoot;
 
-  constructor({ themesRoot, fileSystem = fs, loader = loadThemePackage }) {
+  constructor({ themesRoot, fileSystem = fs, loader = loadThemePackage, mode='development',builtinThemesRoot=null }) {
     if (!path.isAbsolute(themesRoot)) throw new TypeError("themesRoot must be absolute.");
     this.#themesRoot = themesRoot;
     this.#fileSystem = fileSystem;
     this.#loader = loader;
+    this.#mode=mode;
+    this.#builtinThemesRoot=builtinThemesRoot;
   }
 
   async scan() {
-    const entries = await this.#fileSystem.readdir(this.#themesRoot, { withFileTypes: true });
     const packages = new Map();
     const themes = [];
     const invalidThemes = [];
 
+    for(const root of [this.#builtinThemesRoot,this.#themesRoot].filter(Boolean)){
+    const entries=await this.#fileSystem.readdir(root,{withFileTypes:true});
     for (const entry of entries.filter((item) => item.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
-      const packagePath = path.join(this.#themesRoot, entry.name);
+      const packagePath = path.join(root, entry.name);
       try {
         const loaded = await this.#loader(packagePath);
+        const management=await readManagement(packagePath,loaded.manifest);
+        if(root===this.#builtinThemesRoot)Object.assign(management,{origin:'builtin',protected:true,renamable:false,deletable:false});
+        if(!themeVisible(management,this.#mode))continue;
         const id = loaded.manifest.id;
         if (packages.has(id)) throw new RangeError(`Duplicate theme identifier: ${id}.`);
         packages.set(id, loaded);
-        themes.push({...publicTheme(loaded),management:await readManagement(packagePath,loaded.manifest)});
+        themes.push({...publicTheme(loaded),management});
       } catch (error) {
         invalidThemes.push(Object.freeze({
           folder: entry.name,
           message: safeValidationMessage(error, packagePath),
         }));
       }
+    }
     }
 
     this.#packages = packages;

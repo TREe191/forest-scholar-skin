@@ -31,6 +31,7 @@ function parseArgs(argv) {
     port: null,
     browserId: null,
     root: null,
+    resourceRoot: null,
     themePackage: null,
     mode: "Dark",
     action: "watch",
@@ -42,6 +43,7 @@ function parseArgs(argv) {
     if (arg === "--port") options.port = Number(argv[++index]);
     else if (arg === "--browser-id") options.browserId = argv[++index];
     else if (arg === "--root") options.root = argv[++index];
+    else if (arg === "--resource-root") options.resourceRoot = argv[++index];
     else if (arg === "--theme-package") options.themePackage = argv[++index];
     else if (arg === "--mode") options.mode = argv[++index];
     else if (arg === "--state-file") options.stateFile = argv[++index];
@@ -1037,7 +1039,7 @@ async function watchAndInject(options) {
   anchor.addEventListener("close", () => { anchorClosed = true; });
   anchor.addEventListener("error", () => { anchorClosed = true; });
 
-  const payload = await loadThemePayload(options.root, options.themePackage, options.mode);
+  const payload = await loadThemePayload(options.resourceRoot ?? options.root, options.themePackage, options.mode);
   const runtimeDir = path.join(options.root, "runtime");
   const injectionStatePath = options.stateFile ?? path.join(runtimeDir, "injection-state.json");
   const readyPath = path.join(runtimeDir, "ready.json");

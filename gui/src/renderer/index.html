@@ -12,25 +12,73 @@
       <form id="create-form">
         <div class="modal-content">
         <h2 id="create-heading">Create Theme / Add Wallpaper</h2>
+        <section id="editor-basic">
         <label for="wallpaper-mode">Wallpaper mode</label>
         <select id="wallpaper-mode"><option value="single">Single wallpaper</option><option value="dual">Light + Dark wallpapers</option></select>
         <div id="wallpaper-slots"></div>
+        <div class="wallpaper-layout-controls">
+          <span>Wallpaper layout</span>
+          <div class="segmented" role="group" aria-label="Wallpaper layout">
+            <button type="button" data-wallpaper-layout="contain">Fit</button>
+            <button type="button" data-wallpaper-layout="cover">Fill</button>
+            <button type="button" data-wallpaper-layout="focus-soft">Focus</button>
+          </div>
+        </div>
+        <p id="wallpaper-layout-note"></p>
         <p>Switching modes retains your images while this editor is open. Saving uses only the displayed mode; hidden selections are not saved.</p>
-        <p id="wallpaper-error" role="alert"></p>
         <label for="create-name">Theme name</label>
         <input id="create-name" required maxlength="80" autocomplete="off">
         <p>With two wallpapers, an empty side uses the other image. Universal remains automatic unless a palette item is enabled.</p>
         <p id="custom-copy-note" hidden>This copy retains its Custom theme CSS and layout. You can edit its name and wallpapers; Universal palette overrides are unavailable.</p>
-        <details id="palette-advanced"><summary>Advanced palette overrides</summary>
-          <p>Enable only values you want to override. Alpha 0–1. Unchecked items use Universal defaults. Low-contrast combinations are possible.</p>
-          <div id="palette-fields"></div>
-        </details>
+        <p id="editor-policy-summary"></p>
+        <p id="editor-palette-summary"></p>
+        <button id="editor-advanced-open" class="ghost-button" type="button">Advanced…</button>
         <p>PNG is copied unchanged; JPG is converted to a PNG copy. Original files are never modified.</p>
-        <p>Up to 20 MB / 8 million pixels. Universal adaptation; full-image contain layout.</p>
+        <p>Up to 20 MB / 8 million pixels. Layout is shared by Light and Dark wallpapers.</p>
+        </section>
+        <section id="editor-advanced" hidden aria-labelledby="editor-advanced-heading">
+          <button id="editor-advanced-back" class="ghost-button" type="button">Back to theme</button>
+          <h3 id="editor-advanced-heading">Advanced settings</h3>
+          <fieldset id="skin-adaptation-options" class="skin-adaptation-options">
+            <legend class="sr-only">Skin adaptation policy</legend>
+            <label class="recommended-option">
+              <input type="radio" name="skin-adaptation" value="follow-codex">
+              <span><strong>Follow Codex <em>Recommended</em></strong><small>Match the skin to Codex's current appearance.</small></span>
+            </label>
+            <details id="advanced-adaptation" class="advanced-adaptation" open>
+              <summary>Forced variants</summary>
+              <div class="advanced-options">
+                <label><input type="radio" name="skin-adaptation" value="force-light"><span><strong>Force light skin</strong><small>Use the theme's light adaptation.</small></span></label>
+                <label><input type="radio" name="skin-adaptation" value="force-dark"><span><strong>Force dark skin</strong><small>Use the theme's dark adaptation.</small></span></label>
+              </div>
+              <p>These options change skin resources only. They do not change Codex's appearance.</p>
+            </details>
+          </fieldset>
+
+          <div class="detected-appearance">
+            <span>Codex appearance</span>
+            <strong>Not detected</strong>
+          </div>
+
+          <div id="compatibility-warning" class="compatibility-warning" hidden></div>
+          <div id="force-warning" class="compatibility-warning" hidden>
+            Forced skin adaptation may not match Codex's current appearance.
+          </div>
+
+          <section id="palette-advanced">
+            <h3>UI palette overrides</h3>
+            <p>Manual Codex UI colors, not wallpaper edits. Disabled items use Universal automatic values.</p>
+            <p>Enable only values you want to override. Alpha 0–1. Unchecked items use Universal defaults. Low-contrast combinations are possible.</p>
+            <div id="palette-fields"></div>
+          </section>
+          <p>Save keeps this policy pending. Apply changes makes it active.</p>
+          <button class="ghost-button" id="rescan-button" data-developer-only hidden type="button">Rescan themes</button>
+        </section>
         </div>
         <div class="modal-actions">
+        <p id="wallpaper-error" role="alert"></p>
         <button type="button" id="create-cancel">Cancel</button>
-        <button id="create-confirm" type="submit" disabled>Create theme</button>
+        <button id="create-confirm" type="submit" disabled>Save</button>
         </div>
       </form>
     </dialog>
@@ -107,42 +155,8 @@
             <h2 id="settings-heading">Skin adaptation</h2>
           </div>
           <p id="adaptation-summary" class="adaptation-summary">Adaptation: Follow Codex</p>
-          <button id="open-adaptation" class="ghost-button advanced-entry" type="button">Advanced…</button>
-          <dialog id="adaptation-dialog" aria-labelledby="adaptation-dialog-heading">
-          <div class="modal-content">
-          <h2 id="adaptation-dialog-heading">Advanced adaptation</h2>
-          <fieldset id="skin-adaptation-options" class="skin-adaptation-options">
-            <legend class="sr-only">Skin adaptation policy</legend>
-            <label class="recommended-option">
-              <input type="radio" name="skin-adaptation" value="follow-codex">
-              <span><strong>Follow Codex <em>Recommended</em></strong><small>Match the skin to Codex's current appearance.</small></span>
-            </label>
-            <details id="advanced-adaptation" class="advanced-adaptation" open>
-              <summary>Forced variants</summary>
-              <div class="advanced-options">
-                <label><input type="radio" name="skin-adaptation" value="force-light"><span><strong>Force light skin</strong><small>Use the theme's light adaptation.</small></span></label>
-                <label><input type="radio" name="skin-adaptation" value="force-dark"><span><strong>Force dark skin</strong><small>Use the theme's dark adaptation.</small></span></label>
-              </div>
-              <p>These options change skin resources only. They do not change Codex's appearance.</p>
-            </details>
-          </fieldset>
+          <button id="open-adaptation" class="ghost-button advanced-entry" type="button">Theme settings…</button>
 
-          <div class="detected-appearance">
-            <span>Codex appearance</span>
-            <strong>Not detected</strong>
-          </div>
-
-          <div id="compatibility-warning" class="compatibility-warning" hidden></div>
-          <div id="force-warning" class="compatibility-warning" hidden>
-            Forced skin adaptation may not match Codex's current appearance.
-          </div>
-          <p class="action-note">Policy changes remain pending until Apply changes. Closing this dialog keeps your selection.</p>
-          </div>
-          <div class="modal-actions">
-          <button class="ghost-button" id="rescan-button" type="button">Rescan themes</button>
-          <button class="secondary-button" id="close-adaptation" type="button">Done</button>
-          </div>
-          </dialog>
 
           <div id="pending-notice" class="pending-notice" hidden>
             <span class="status-dot warning"></span>
@@ -160,11 +174,28 @@
       </div>
 
       <footer id="status-bar" class="status-bar" aria-live="polite">
+        <button id="about-open" class="about-entry" type="button">About</button>
+        <button id="support-open" class="about-entry" data-support-only hidden type="button">Diagnostics / Support</button>
         <span id="status-dot" class="status-dot"></span>
         <span id="status-message">Loading Theme Packages…</span>
         <span id="active-summary" class="active-summary"></span>
       </footer>
     </main>
+    <dialog id="about-dialog" aria-labelledby="about-heading">
+      <h2 id="about-heading">About Theme Manager</h2>
+      <p id="about-version"></p>
+      <p>Author: TREe191</p>
+      <p id="about-project" data-i18n-skip></p>
+      <button id="about-close" class="secondary-button" type="button">Done</button>
+    </dialog>
+    <dialog id="support-dialog" aria-labelledby="support-heading">
+      <h2 id="support-heading">Diagnostics / Support</h2>
+      <p>Only startup and application diagnostics are included. Chat and account content are not collected.</p>
+      <p>Exports only the latest startup session. Raw logs and full paths are excluded.</p>
+      <p id="support-result" role="status"></p>
+      <button id="support-export" class="secondary-button" type="button">Export diagnostics</button>
+      <button id="support-close" class="ghost-button" type="button">Done</button>
+    </dialog>
     <script type="module" src="app.mjs"></script>
   </body>
 </html>
